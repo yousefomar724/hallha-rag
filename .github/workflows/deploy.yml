@@ -1,0 +1,33 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main # Change this if your default branch is 'master'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            # Navigate to the project directory
+            cd ~/hallha-rag 
+
+            # Pull the latest code
+            git pull origin main
+
+            # Install dependencies
+            pnpm install
+
+            # Build the TypeScript files
+            pnpm build
+
+            # Restart the PM2 process
+            pm2 restart hallha-api
