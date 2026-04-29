@@ -1,0 +1,69 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Commands
+
+Package manager is **pnpm** (>=9), Node >=20. All scripts auto-load `.env`.
+
+- `pnpm dev` — watch-mode dev server via `tsx` (port 8000)
+- `pnpm build` — `tsc` emit to `dist/`
+- `pnpm typecheck` — `tsc --noEmit`
+- `pnpm start` — run built server from `dist/`
+- `pnpm test` — Vitest run (single file: `pnpm test tests/chat-audit.test.ts`; single test: `pnpm test -t "rejects missing thread_id"`)
+- `pnpm test:watch` — Vitest watch
+- `pnpm lint` / `pnpm format` — ESLint / Prettier
+
+`vitest.config.ts` injects fake `GROQ_API_KEY`, `PINECONE_API_KEY`, `MONGO_URI` so tests don't need `.env` — but tests are expected to mock external services (see `tests/*.test.ts`), not hit them.
+
+## Architecture
+
+Express 5 + TypeScript port of a Python/FastAPI Sharia-compliance auditor. Two endpoints (`/upload-knowledge`, `/chat-audit`) sit in front of a LangGraph agent backed by Pinecone (RAG) and MongoDB (conversation memory).
+
+### Request flow for `/chat-audit`
+
+1. `routes/chat-audit.ts` — multer parses multipart (`memoryUpload`, in-memory buffer). PDFs are extracted via `unpdf` (`utils/pdf.ts`); other files are decoded as UTF-8. `thread_id` is required (422 if missing).
+2. `agent/graph.ts::getCompiledGraph()` — lazily builds a `StateGraph` (`retrieve` → `audit`) compiled with a `MongoDBSaver` checkpointer. The compiled graph is cached in module scope.
+3. `retrieveShariaRules` (`agent/nodes.ts`) — runs Pinecone retriever (k=4) against the last user message (or, if empty, the first 500 chars of the uploaded document). Returns `context`.
+4. `shariaAuditNode` — calls the Groq LLM (`GROQ_MODEL`, default `llama-3.3-70b-versatile`) with a fixed system prompt embedding `state.context` + `state.documentText`. Quota / rate-limit errors are not retried — they map to HTTP 429 immediately so clients are not blocked for minutes.
+5. Memory persists per `thread_id` via the checkpointer (`{ configurable: { thread_id } }`); `documentText` is replaced each call (not appended).
+
+### Request flow for `/upload-knowledge`
+
+`diskUpload` writes the PDF to `./uploads/<originalname>` → `rag/ingest.ts::ingestPdfToPinecone` extracts pages with `unpdf`, splits with `RecursiveCharacterTextSplitter` (chunkSize 1800, overlap 150), and upserts embeddings to Pinecone.
+
+### Singletons / lifecycle
+
+`lib/{embeddings,llm,mongo,pinecone}.ts` each export a lazy singleton. `src/index.ts` handles `SIGINT`/`SIGTERM` and calls `closeMongo()`. Tests import `createApp` from `src/app.ts` (no listener) so they can mock the graph or ingest module before app construction.
+
+### State shape
+
+`agent/state.ts` defines three channels via `Annotation.Root`: `messages` (uses `messagesStateReducer` so updates append), `documentText` (replace), `context` (replace). Always return partial `AgentStateUpdate`s from nodes.
+
+## Cross-runtime parity (important)
+
+- The Pinecone index is shared with the Python service. The custom `HuggingFaceTransformersEmbeddings` (`lib/embeddings.ts`) wraps `@huggingface/transformers` `Xenova/all-MiniLM-L6-v2` with mean-pooling + L2 normalize to match Python `sentence-transformers/all-MiniLM-L6-v2` (384-dim). **Do not change the model, pooling, or normalization** — vectors must stay numerically compatible with existing index data.
+- Index name (`hallha`), chunk size/overlap (1800/150), retriever k (4), and the audit system prompt intentionally mirror the Python service. The Python stack uses Gemini; this Node stack uses Groq-hosted models (`GROQ_MODEL`) instead — behavior may differ slightly.
+- **LangGraph Mongo checkpoints are NOT interchangeable between Python and JS.** The Python runtime stores checkpoints with `msgpack` serialization; this Node app uses LangGraph JS (`json`). If sharing a Mongo cluster with Python, give this service **distinct** checkpoint and checkpoint-writes collections (defaults `checkpoints_langgraph_js` and `checkpoint_writes_langgraph_js`).
+
+## Configuration
+
+`config/env.ts` validates env via Zod and `process.exit(1)`s on failure. Required: `GROQ_API_KEY`, `PINECONE_API_KEY`, `MONGO_URI`. Optional defaults: `GROQ_MODEL=llama-3.3-70b-versatile`, `PORT=8000`, `CORS_ORIGIN=*`, `PINECONE_INDEX=hallha`, `MONGO_DB_NAME=sharia_app`, `MONGO_CHECKPOINT_COLLECTION=checkpoints_langgraph_js`, `MONGO_CHECKPOINT_WRITES_COLLECTION=checkpoint_writes_langgraph_js`. Setting any `LANGSMITH_*` enables LangSmith auto-tracing.
+
+## TypeScript / module conventions
+
+- ESM (`"type": "module"`), `module: NodeNext` — **all relative imports must include the `.js` extension**, even for `.ts` source files (e.g. `import { env } from './config/env.js'`).
+- `strict: true`, `noUncheckedIndexedAccess: true` — array access returns `T | undefined`; handle it.
+- ESLint allows `any` (`@typescript-eslint/no-explicit-any: off`) and ignores unused vars prefixed with `_`.
+- Tests live under `tests/` and are excluded from `tsc` (`tsconfig.json` excludes them; Vitest type-checks at runtime).
+
+## Error handling
+
+`middleware/error.ts` maps:
+- `HttpError` → its `status`
+- `IngestError` → 400
+- LLM quota / rate limit (`RESOURCE_EXHAUSTED`, `429`, `rate_limit_*`, etc.) → 429 with rate-limit guidance
+- Groq/host API errors identifiable as upstream → 502
+- Anything else → 500
+
+Throw `HttpError`/`IngestError` from routes and nodes; don't write status codes inline.
