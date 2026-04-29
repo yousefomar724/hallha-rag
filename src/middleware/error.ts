@@ -1,4 +1,5 @@
 import type { ErrorRequestHandler, Request, Response, NextFunction } from 'express';
+import { APIError } from 'better-auth';
 import { IngestError } from '../rag/ingest.js';
 import { logger } from '../lib/logger.js';
 
@@ -42,6 +43,19 @@ export const errorHandler: ErrorRequestHandler = (
 ) => {
   if (err instanceof HttpError) {
     res.status(err.status).json({ detail: err.message });
+    return;
+  }
+
+  if (err instanceof APIError) {
+    const status =
+      typeof err.statusCode === 'number' && err.statusCode >= 400 && err.statusCode < 600
+        ? err.statusCode
+        : 400;
+    const detail =
+      err.body && typeof err.body === 'object' && err.body !== null && 'message' in err.body
+        ? String((err.body as { message?: unknown }).message ?? err.message)
+        : err.message;
+    res.status(status).json({ detail });
     return;
   }
 

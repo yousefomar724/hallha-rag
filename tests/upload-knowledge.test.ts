@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
+import {
+  createUserWithSessionCookie,
+  getPrimaryOrgIdForUser,
+  setOrganizationPlan,
+  TEST_AUTH_ORIGIN,
+} from './test-helpers/auth-flow.js';
 
 vi.mock('../src/rag/ingest.js', async () => {
   const actual = await vi.importActual<typeof import('../src/rag/ingest.js')>('../src/rag/ingest.js');
@@ -19,15 +25,41 @@ describe('POST /upload-knowledge', () => {
 
   it('rejects requests without a file with 400', async () => {
     const app = createApp();
-    const res = await request(app).post('/upload-knowledge');
+    const { cookieHeader, userId } = await createUserWithSessionCookie(app);
+    const orgId = await getPrimaryOrgIdForUser(userId);
+    await setOrganizationPlan(orgId, 'business');
+
+    const res = await request(app)
+      .post('/upload-knowledge')
+      .set('Cookie', cookieHeader)
+      .set('Origin', TEST_AUTH_ORIGIN);
     expect(res.status).toBe(400);
     expect(res.body.detail).toMatch(/file/i);
   });
 
-  it('returns success message when ingest succeeds', async () => {
+  it('rejects free-plan orgs with 402', async () => {
     const app = createApp();
+    const { cookieHeader } = await createUserWithSessionCookie(app);
     const res = await request(app)
       .post('/upload-knowledge')
+      .set('Cookie', cookieHeader)
+      .set('Origin', TEST_AUTH_ORIGIN)
+      .attach('file', Buffer.from('%PDF-1.4 fake'), 'rulebook.pdf');
+    expect(res.status).toBe(402);
+    expect(res.body.detail).toMatch(/Business/i);
+    expect(ingestPdfToPinecone).not.toHaveBeenCalled();
+  });
+
+  it('returns success message when ingest succeeds on business plan', async () => {
+    const app = createApp();
+    const { cookieHeader, userId } = await createUserWithSessionCookie(app);
+    const orgId = await getPrimaryOrgIdForUser(userId);
+    await setOrganizationPlan(orgId, 'business');
+
+    const res = await request(app)
+      .post('/upload-knowledge')
+      .set('Cookie', cookieHeader)
+      .set('Origin', TEST_AUTH_ORIGIN)
       .attach('file', Buffer.from('%PDF-1.4 fake'), 'rulebook.pdf');
 
     expect(res.status).toBe(200);
@@ -41,8 +73,14 @@ describe('POST /upload-knowledge', () => {
     vi.mocked(ingestPdfToPinecone).mockRejectedValueOnce(new IngestError('Uploaded file is empty.'));
 
     const app = createApp();
+    const { cookieHeader, userId } = await createUserWithSessionCookie(app);
+    const orgId = await getPrimaryOrgIdForUser(userId);
+    await setOrganizationPlan(orgId, 'business');
+
     const res = await request(app)
       .post('/upload-knowledge')
+      .set('Cookie', cookieHeader)
+      .set('Origin', TEST_AUTH_ORIGIN)
       .attach('file', Buffer.from(''), 'empty.pdf');
 
     expect(res.status).toBe(400);

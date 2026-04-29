@@ -1,4 +1,4 @@
-import { MongoClient } from 'mongodb';
+import { MongoClient, type Db } from 'mongodb';
 import { MongoDBSaver } from '@langchain/langgraph-checkpoint-mongodb';
 import { env } from '../config/env.js';
 import { logger } from './logger.js';
@@ -13,6 +13,11 @@ export async function getMongoClient(): Promise<MongoClient> {
     logger.info('Connected to MongoDB');
   }
   return mongoClient;
+}
+
+export async function getDb(): Promise<Db> {
+  const client = await getMongoClient();
+  return client.db(env.MONGO_DB_NAME);
 }
 
 export async function getCheckpointer(): Promise<MongoDBSaver> {

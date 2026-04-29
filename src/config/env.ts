@@ -12,6 +12,25 @@ const envSchema = z.object({
   MONGO_CHECKPOINT_COLLECTION: z.string().default('checkpoints_langgraph_js'),
   MONGO_CHECKPOINT_WRITES_COLLECTION: z.string().default('checkpoint_writes_langgraph_js'),
 
+  BETTER_AUTH_SECRET: z
+    .string()
+    .min(32, 'BETTER_AUTH_SECRET must be at least 32 characters'),
+  BETTER_AUTH_URL: z.string().url('BETTER_AUTH_URL must be a valid URL'),
+  AUTH_TRUSTED_ORIGINS: z.string().default(''),
+  COOKIE_DOMAIN: z.string().optional(),
+
+  /** When true, Better Auth uses multi-document transactions (requires replica set). Default false for local dev / standalone MongoDB. */
+  MONGO_ADAPTER_USE_TRANSACTIONS: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+
+  /** Expose `/docs` (Swagger UI) and `/openapi.json`. Set to false to disable in production. */
+  SWAGGER_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v !== 'false' && v !== '0'),
+
   LANGSMITH_TRACING: z.string().optional(),
   LANGSMITH_ENDPOINT: z.string().optional(),
   LANGSMITH_API_KEY: z.string().optional(),

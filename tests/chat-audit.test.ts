@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import { AIMessage } from '@langchain/core/messages';
+import {
+  createUserWithSessionCookie,
+  getPrimaryOrgIdForUser,
+  TEST_AUTH_ORIGIN,
+} from './test-helpers/auth-flow.js';
 
 const invokeMock = vi.fn();
 
@@ -15,7 +20,12 @@ const { createApp } = await import('../src/app.js');
 describe('POST /chat-audit', () => {
   it('rejects missing thread_id with 422', async () => {
     const app = createApp();
-    const res = await request(app).post('/chat-audit').field('message', 'hello');
+    const { cookieHeader } = await createUserWithSessionCookie(app);
+    const res = await request(app)
+      .post('/chat-audit')
+      .set('Cookie', cookieHeader)
+      .set('Origin', TEST_AUTH_ORIGIN)
+      .field('message', 'hello');
     expect(res.status).toBe(422);
     expect(res.body.detail).toMatch(/thread_id/);
   });
@@ -26,8 +36,13 @@ describe('POST /chat-audit', () => {
     });
 
     const app = createApp();
+    const { cookieHeader, userId } = await createUserWithSessionCookie(app);
+    const orgId = await getPrimaryOrgIdForUser(userId);
+
     const res = await request(app)
       .post('/chat-audit')
+      .set('Cookie', cookieHeader)
+      .set('Origin', TEST_AUTH_ORIGIN)
       .field('thread_id', 'thread-123')
       .field('message', 'Audit this please');
 
@@ -36,7 +51,9 @@ describe('POST /chat-audit', () => {
     expect(res.body.response).toBe('This contract contains Riba.');
     expect(invokeMock).toHaveBeenCalledWith(
       expect.objectContaining({ documentText: '' }),
-      expect.objectContaining({ configurable: { thread_id: 'thread-123' } }),
+      expect.objectContaining({
+        configurable: { thread_id: `${orgId}:thread-123` },
+      }),
     );
   });
 
@@ -44,15 +61,20 @@ describe('POST /chat-audit', () => {
     invokeMock.mockResolvedValueOnce({ messages: [new AIMessage('ok')] });
 
     const app = createApp();
+    const { cookieHeader, userId } = await createUserWithSessionCookie(app);
+    const orgId = await getPrimaryOrgIdForUser(userId);
+
     const res = await request(app)
       .post('/chat-audit')
+      .set('Cookie', cookieHeader)
+      .set('Origin', TEST_AUTH_ORIGIN)
       .field('thread_id', 'thread-utf8')
       .attach('file', Buffer.from('plain text contract', 'utf-8'), 'doc.txt');
 
     expect(res.status).toBe(200);
     expect(invokeMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ documentText: 'plain text contract' }),
-      expect.anything(),
+      expect.objectContaining({ configurable: { thread_id: `${orgId}:thread-utf8` } }),
     );
   });
 
@@ -60,8 +82,12 @@ describe('POST /chat-audit', () => {
     invokeMock.mockRejectedValueOnce(new Error('429: rate_limit_exceeded'));
 
     const app = createApp();
+    const { cookieHeader } = await createUserWithSessionCookie(app);
+
     const res = await request(app)
       .post('/chat-audit')
+      .set('Cookie', cookieHeader)
+      .set('Origin', TEST_AUTH_ORIGIN)
       .field('thread_id', 'thread-429')
       .field('message', 'hello');
 
