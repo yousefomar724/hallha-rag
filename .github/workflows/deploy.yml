@@ -19,15 +19,19 @@ jobs:
           script: |
             set -euo pipefail
 
-            # Hallha API (this repo) on the VPS. The domain docroot is usually the parent:
-            #   /home/alef-team-hallha/htdocs/hallha.alef-team.com   → front-end / static
-            # Use a sibling folder under that path for the Node service (adjust if you still use hallha-rag).
+            # hallha-node lives at the site path on this VPS (must be a git clone: has .git).
             APP_DIR=/home/alef-team-hallha/htdocs/hallha.alef-team.com
+
+            if [ ! -d "$APP_DIR/.git" ]; then
+              echo "No git repo at $APP_DIR (git pull needs .git here)."
+              echo "On the VPS, from an empty docroot or use: git clone <REPO_URL> ."
+              exit 1
+            fi
 
             cd "$APP_DIR"
 
             if [ ! -f package.json ]; then
-              echo "No package.json in $APP_DIR — clone hallha-node here or fix APP_DIR in deploy.yml"
+              echo "No package.json in $APP_DIR — fix APP_DIR or clone the hallha-node repo here"
               exit 1
             fi
             if ! grep -q '"name"[[:space:]]*:[[:space:]]*"hallha-node"' package.json; then
