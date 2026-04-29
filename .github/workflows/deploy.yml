@@ -39,6 +39,9 @@ jobs:
               exit 1
             fi
 
+            # Git 2.35+ "dubious ownership" when repo owner ≠ SSH user (common on shared hosting).
+            git config --global --add safe.directory "$APP_DIR"
+
             git pull origin main
 
             pnpm install
