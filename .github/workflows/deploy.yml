@@ -17,8 +17,8 @@ jobs:
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            # Navigate to the project directory
-            cd ~/hallha-rag 
+            # Navigate to the project directory (must be the git repo root with package.json)
+            cd /var/www/hallha-rag
 
             # Pull the latest code
             git pull origin main
