@@ -47,4 +47,4 @@ jobs:
             pnpm install
             pnpm build
 
-            pm2 restart hallha-api
+            pm2 restart hallha
