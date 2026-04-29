@@ -3,7 +3,7 @@ name: Deploy to VPS
 on:
   push:
     branches:
-      - main # Change this if your default branch is 'master'
+      - main # Change if your default branch is 'master'
 
 jobs:
   deploy:
@@ -17,17 +17,27 @@ jobs:
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            # Navigate to the project directory (must be the git repo root with package.json)
-            cd /var/www/hallha-rag
+            set -euo pipefail
 
-            # Pull the latest code
+            # Hallha API (this repo) on the VPS. The domain docroot is usually the parent:
+            #   /home/alef-team-hallha/htdocs/hallha.alef-team.com   → front-end / static
+            # Use a sibling folder under that path for the Node service (adjust if you still use hallha-rag).
+            APP_DIR=/home/alef-team-hallha/htdocs/hallha.alef-team.com/hallha-node
+
+            cd "$APP_DIR"
+
+            if [ ! -f package.json ]; then
+              echo "No package.json in $APP_DIR — clone hallha-node here or fix APP_DIR in deploy.yml"
+              exit 1
+            fi
+            if ! grep -q '"name"[[:space:]]*:[[:space:]]*"hallha-node"' package.json; then
+              echo "package.json is not hallha-node — wrong APP_DIR?"
+              exit 1
+            fi
+
             git pull origin main
 
-            # Install dependencies
             pnpm install
-
-            # Build the TypeScript files
             pnpm build
 
-            # Restart the PM2 process
             pm2 restart hallha-api
