@@ -2,8 +2,18 @@ import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { logger } from './lib/logger.js';
 import { closeMongo } from './lib/mongo.js';
+import { cleanupOrphanCheckpoints, ensureChatHistoryIndexes } from './lib/chat-history.js';
 
 const app = createApp();
+
+void (async () => {
+  try {
+    await ensureChatHistoryIndexes();
+    await cleanupOrphanCheckpoints();
+  } catch (err) {
+    logger.error({ err }, 'Chat history bootstrap failed (continuing)');
+  }
+})();
 
 const server = app.listen(env.PORT, () => {
   logger.info({ port: env.PORT }, 'Hallha API listening');

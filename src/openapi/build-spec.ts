@@ -35,6 +35,7 @@ export function buildOpenApiSpec(serverBaseUrl: string): Record<string, unknown>
       { name: 'System', description: 'Health and OpenAPI' },
       { name: 'Auth', description: 'Better Auth (email/password, session, organizations)' },
       { name: 'Chat audit', description: 'RAG + LLM Sharia audit' },
+      { name: 'Chat history', description: 'List, retrieve, and delete chat threads (30-day TTL)' },
       { name: 'Knowledge', description: 'Custom PDF ingest to Pinecone' },
     ],
     components: {
@@ -123,6 +124,35 @@ export function buildOpenApiSpec(serverBaseUrl: string): Record<string, unknown>
           },
           required: ['status', 'message'],
         },
+        ChatThreadSummary: {
+          type: 'object',
+          properties: {
+            thread_id: { type: 'string' },
+            title: { type: 'string' },
+            createdAt: { type: 'string', format: 'date-time' },
+            lastMessageAt: { type: 'string', format: 'date-time' },
+          },
+          required: ['thread_id', 'title', 'createdAt', 'lastMessageAt'],
+        },
+        ChatMessage: {
+          type: 'object',
+          properties: {
+            role: { type: 'string', enum: ['user', 'assistant', 'tool'] },
+            content: { type: 'string' },
+          },
+          required: ['role', 'content'],
+        },
+        ChatThreadDetail: {
+          type: 'object',
+          properties: {
+            thread_id: { type: 'string' },
+            title: { type: 'string' },
+            createdAt: { type: 'string', format: 'date-time' },
+            lastMessageAt: { type: 'string', format: 'date-time' },
+            messages: { type: 'array', items: { $ref: '#/components/schemas/ChatMessage' } },
+          },
+          required: ['thread_id', 'title', 'createdAt', 'lastMessageAt', 'messages'],
+        },
       },
     },
     paths: {
@@ -208,7 +238,9 @@ export function buildOpenApiSpec(serverBaseUrl: string): Record<string, unknown>
       '/api/auth/sign-out': {
         post: {
           tags: ['Auth'],
-          summary: 'Sign out (invalidate session cookie)',
+          summary: 'Sign out (invalidate session and clear cookie)',
+          description:
+            'On success the response sets `Set-Cookie: hallha.session_token=; Max-Age=0` to clear the session cookie client-side, and revokes the session row server-side. Returns 401 if no valid session cookie was sent.',
           security: [{ sessionCookie: [] }],
           parameters: [
             {
@@ -219,15 +251,26 @@ export function buildOpenApiSpec(serverBaseUrl: string): Record<string, unknown>
           ],
           responses: {
             '200': {
-              description: 'Signed out',
+              description: 'Signed out; session cookie cleared via `Set-Cookie`.',
+              headers: {
+                'Set-Cookie': {
+                  description: 'Cleared session cookie (e.g. `hallha.session_token=; Max-Age=0; Path=/`).',
+                  schema: { type: 'string' },
+                },
+              },
               content: {
                 'application/json': {
                   schema: {
                     type: 'object',
-                    properties: { success: { type: 'boolean' } },
+                    properties: { success: { type: 'boolean', example: true } },
+                    required: ['success'],
                   },
                 },
               },
+            },
+            '401': {
+              description: 'No active session.',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
             },
           },
         },
@@ -385,6 +428,179 @@ export function buildOpenApiSpec(serverBaseUrl: string): Record<string, unknown>
             },
             '502': {
               description: 'Upstream LLM error',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+          },
+        },
+      },
+      '/chat-audit/stream': {
+        post: {
+          tags: ['Chat audit'],
+          summary: 'Run Sharia audit and stream tokens via SSE',
+          description: [
+            'Same multipart body as `/chat-audit`, but the response is `text/event-stream`.',
+            '',
+            'Events:',
+            '- `meta` — `{ thread_id }` (sent first)',
+            '- `token` — `{ text }` for each LLM token chunk',
+            '- `done` — `{ thread_id }` when the run completes successfully',
+            '- `error` — `{ detail }` if streaming fails mid-flight',
+            '',
+            'Heartbeat comments (`: keep-alive`) are sent every 15s. Audit quota is consumed on success the same as the JSON endpoint.',
+          ].join('\n'),
+          security: [{ sessionCookie: [] }, { trustedOrigin: [] }],
+          parameters: [
+            {
+              name: 'Origin',
+              in: 'header',
+              required: true,
+              schema: { type: 'string', example: 'http://localhost:3000' },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'multipart/form-data': {
+                schema: {
+                  type: 'object',
+                  required: ['thread_id'],
+                  properties: {
+                    thread_id: { type: 'string' },
+                    message: { type: 'string' },
+                    file: { type: 'string', format: 'binary' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': {
+              description: 'SSE stream',
+              content: {
+                'text/event-stream': {
+                  schema: {
+                    type: 'string',
+                    example:
+                      'event: meta\ndata: {"thread_id":"audit-1"}\n\nevent: token\ndata: {"text":"This"}\n\nevent: done\ndata: {"thread_id":"audit-1"}\n\n',
+                  },
+                },
+              },
+            },
+            '401': {
+              description: 'Not authenticated',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '402': {
+              description: 'Quota or plan limit',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '422': {
+              description: 'Missing thread_id',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+          },
+        },
+      },
+      '/chats': {
+        get: {
+          tags: ['Chat history'],
+          summary: 'List the current user\'s chat threads (most recent first)',
+          security: [{ sessionCookie: [] }, { trustedOrigin: [] }],
+          parameters: [
+            {
+              name: 'Origin',
+              in: 'header',
+              required: true,
+              schema: { type: 'string', example: 'http://localhost:3000' },
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'Threads (auto-deleted after 30 days of inactivity)',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      threads: {
+                        type: 'array',
+                        items: { $ref: '#/components/schemas/ChatThreadSummary' },
+                      },
+                    },
+                    required: ['threads'],
+                  },
+                },
+              },
+            },
+            '401': {
+              description: 'Not authenticated',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+          },
+        },
+      },
+      '/chats/{thread_id}': {
+        get: {
+          tags: ['Chat history'],
+          summary: 'Get a single thread with its message history',
+          security: [{ sessionCookie: [] }, { trustedOrigin: [] }],
+          parameters: [
+            { name: 'thread_id', in: 'path', required: true, schema: { type: 'string' } },
+            {
+              name: 'Origin',
+              in: 'header',
+              required: true,
+              schema: { type: 'string', example: 'http://localhost:3000' },
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'Thread + messages',
+              content: {
+                'application/json': { schema: { $ref: '#/components/schemas/ChatThreadDetail' } },
+              },
+            },
+            '401': {
+              description: 'Not authenticated',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '404': {
+              description: 'Thread not found or not owned by this user',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+          },
+        },
+        delete: {
+          tags: ['Chat history'],
+          summary: 'Delete a thread and its LangGraph checkpoints',
+          security: [{ sessionCookie: [] }, { trustedOrigin: [] }],
+          parameters: [
+            { name: 'thread_id', in: 'path', required: true, schema: { type: 'string' } },
+            {
+              name: 'Origin',
+              in: 'header',
+              required: true,
+              schema: { type: 'string', example: 'http://localhost:3000' },
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'Deleted',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      status: { type: 'string', example: 'deleted' },
+                      checkpointsDeleted: { type: 'integer' },
+                      writesDeleted: { type: 'integer' },
+                    },
+                  },
+                },
+              },
+            },
+            '404': {
+              description: 'Thread not found',
               content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
             },
           },
