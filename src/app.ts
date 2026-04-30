@@ -49,17 +49,19 @@ export function createApp(): Express {
   // real client address (used by express-rate-limit when there is no authed user).
   app.set('trust proxy', 1);
 
-  const authHandler = toNodeHandler(auth);
-  app.all('/api/auth/*splat', (req, res, next) => {
-    void authHandler(req, res).catch(next);
-  });
-
+  // Must run before Better Auth: `/api/auth/*` would otherwise skip CORS and browsers block
+  // cross-origin credentialed requests (login, session, etc.).
   app.use(
     cors({
       origin: buildCorsOrigin(),
       credentials: true,
     }),
   );
+
+  const authHandler = toNodeHandler(auth);
+  app.all('/api/auth/*splat', (req, res, next) => {
+    void authHandler(req, res).catch(next);
+  });
   app.use(pinoHttp({ logger }));
   app.use(express.json({ limit: '5mb' }));
 

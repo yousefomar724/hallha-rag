@@ -22,7 +22,7 @@ const bankLinkSchema = z.object({
 });
 
 const planSchema = z.object({
-  plan: z.enum(['startup', 'growth', 'enterprise']),
+  plan: z.enum(['free', 'starter', 'business', 'enterprise']),
   billing: z.enum(['monthly', 'yearly']),
 });
 
@@ -82,7 +82,7 @@ organizationsRouter.patch('/organizations/me', requireAuth, async (req, res, nex
       registrationNumber: data.registrationNumber,
       country: data.country,
       industry: data.industry,
-      onboardingStep: 3,
+      onboardingStep: 2,
     });
     res.json({ ok: true, organization: serializeOrg(updated) });
   } catch (err) {
@@ -95,7 +95,7 @@ organizationsRouter.post('/organizations/me/bank-link', requireAuth, async (req,
     const data = parseBody(bankLinkSchema, req.body);
     const updated = await applyOrgUpdate(req.activeOrgId!, {
       bankInstitutionId: data.institutionId,
-      onboardingStep: 4,
+      onboardingStep: 3,
     });
     res.json({ ok: true, organization: serializeOrg(updated) });
   } catch (err) {
@@ -113,6 +113,24 @@ organizationsRouter.post('/organizations/me/plan', requireAuth, async (req, res,
       onboardingStep: 4,
       onboardingCompleted: true,
     });
+    res.json({ ok: true, organization: serializeOrg(updated) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const onboardingSkipSchema = z.object({
+  fromStep: z.number().int().min(2).max(4).optional(),
+});
+
+// Marks onboarding as complete without requiring the user to fill in every step.
+// Org keeps default plan ('free') if the plan step was never submitted.
+organizationsRouter.post('/organizations/me/onboarding/skip', requireAuth, async (req, res, next) => {
+  try {
+    const data = parseBody(onboardingSkipSchema, req.body ?? {});
+    const update: Record<string, unknown> = { onboardingCompleted: true };
+    if (typeof data.fromStep === 'number') update.onboardingStep = data.fromStep;
+    const updated = await applyOrgUpdate(req.activeOrgId!, update);
     res.json({ ok: true, organization: serializeOrg(updated) });
   } catch (err) {
     next(err);
