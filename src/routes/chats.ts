@@ -10,6 +10,7 @@ import {
   listThreadsForUser,
   namespaceThreadId,
 } from '../lib/chat-history.js';
+import type { RetrievedSource } from '../agent/prompt.js';
 
 export const chatsRouter: Router = Router();
 
@@ -63,11 +64,16 @@ chatsRouter.get('/chats/:thread_id', requireAuth, async (req, res, next) => {
     const namespaced = namespaceThreadId(orgId, userThreadId);
     const graph = await getCompiledGraph();
     const state = await graph.getState({ configurable: { thread_id: namespaced } });
-    const rawMessages = (state?.values as { messages?: BaseMessage[] } | undefined)?.messages ?? [];
+    const values = state?.values as
+      | { messages?: BaseMessage[]; sources?: RetrievedSource[] }
+      | undefined;
+    const rawMessages = values?.messages ?? [];
 
     const messages: ApiMessage[] = rawMessages
       .map((m) => ({ role: mapRole(m), content: messageContentToText(m.content) }))
       .filter((m) => m.role !== 'system');
+
+    const sources = Array.isArray(values?.sources) ? values.sources : [];
 
     res.json({
       thread_id: thread.userThreadId,
@@ -75,6 +81,7 @@ chatsRouter.get('/chats/:thread_id', requireAuth, async (req, res, next) => {
       createdAt: thread.createdAt.toISOString(),
       lastMessageAt: thread.lastMessageAt.toISOString(),
       messages,
+      sources,
     });
   } catch (err) {
     next(err);

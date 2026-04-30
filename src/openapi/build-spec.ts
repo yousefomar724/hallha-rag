@@ -142,6 +142,16 @@ export function buildOpenApiSpec(serverBaseUrl: string): Record<string, unknown>
           },
           required: ['role', 'content'],
         },
+        RetrievedSource: {
+          type: 'object',
+          properties: {
+            id: { type: 'number' },
+            source: { type: 'string' },
+            page: { type: 'number' },
+            url: { type: 'string' },
+          },
+          required: ['id', 'source', 'page'],
+        },
         ChatThreadDetail: {
           type: 'object',
           properties: {
@@ -150,8 +160,12 @@ export function buildOpenApiSpec(serverBaseUrl: string): Record<string, unknown>
             createdAt: { type: 'string', format: 'date-time' },
             lastMessageAt: { type: 'string', format: 'date-time' },
             messages: { type: 'array', items: { $ref: '#/components/schemas/ChatMessage' } },
+            sources: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/RetrievedSource' },
+            },
           },
-          required: ['thread_id', 'title', 'createdAt', 'lastMessageAt', 'messages'],
+          required: ['thread_id', 'title', 'createdAt', 'lastMessageAt', 'messages', 'sources'],
         },
       },
     },

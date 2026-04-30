@@ -82,6 +82,7 @@ describe('Chat history endpoints', () => {
       { role: 'user', content: 'Audit this please' },
       { role: 'assistant', content: 'Looks compliant.' },
     ]);
+    expect(detailRes.body.sources).toEqual([]);
 
     // 4. DELETE removes it
     const delRes = await request(app)
@@ -150,6 +151,7 @@ describe('Chat history endpoints', () => {
     expect(res.text).toContain('event: token');
     expect(res.text).toContain('"text":"Hello "');
     expect(res.text).toContain('"text":"world"');
+    expect(res.text).toContain('event: sources');
     expect(res.text).toContain('event: done');
   });
 
