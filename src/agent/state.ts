@@ -1,5 +1,6 @@
 import type { BaseMessage } from '@langchain/core/messages';
 import { Annotation, messagesStateReducer } from '@langchain/langgraph';
+import type { RetrievedSource } from './prompt.js';
 
 export const AgentStateAnnotation = Annotation.Root({
   messages: Annotation<BaseMessage[]>({
@@ -13,6 +14,10 @@ export const AgentStateAnnotation = Annotation.Root({
   context: Annotation<string>({
     reducer: (_prev, next) => next,
     default: () => '',
+  }),
+  sources: Annotation<RetrievedSource[]>({
+    reducer: (_prev, next) => next,
+    default: () => [],
   }),
 });
 

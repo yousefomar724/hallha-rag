@@ -3,6 +3,10 @@ import { HumanMessage } from '@langchain/core/messages';
 import { memoryUpload } from '../middleware/upload.js';
 import { requireAuth } from '../middleware/require-auth.js';
 import { usageLimitAudit } from '../middleware/usage-limit.js';
+import {
+  chatAuditMinuteLimiter,
+  chatAuditHourlyLimiter,
+} from '../middleware/rate-limit.js';
 import { HttpError } from '../middleware/error.js';
 import { extractPdfText } from '../utils/pdf.js';
 import { getCompiledGraph } from '../agent/graph.js';
@@ -94,6 +98,8 @@ async function recordThreadActivity(req: Request, inputs: AuditInputs): Promise<
 chatAuditRouter.post(
   '/chat-audit',
   requireAuth,
+  chatAuditMinuteLimiter,
+  chatAuditHourlyLimiter,
   usageLimitAudit(),
   memoryUpload.single('file'),
   async (req, res, next) => {
@@ -128,6 +134,8 @@ function writeSse(res: Response, event: string, data: unknown): void {
 chatAuditRouter.post(
   '/chat-audit/stream',
   requireAuth,
+  chatAuditMinuteLimiter,
+  chatAuditHourlyLimiter,
   usageLimitAudit(),
   memoryUpload.single('file'),
   async (req, res, next) => {

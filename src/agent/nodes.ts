@@ -2,6 +2,7 @@ import { SystemMessage } from '@langchain/core/messages';
 import { getRetriever } from '../lib/pinecone.js';
 import { getLlm } from '../lib/llm.js';
 import { logger } from '../lib/logger.js';
+import { buildHalimSystemPrompt, type RetrievedSource } from './prompt.js';
 import type { AgentState, AgentStateUpdate } from './state.js';
 
 function isQuotaError(err: unknown): boolean {
@@ -32,30 +33,35 @@ export async function retrieveShariaRules(state: AgentState): Promise<AgentState
   const searchQuery = lastText || state.documentText.slice(0, 500);
 
   if (!searchQuery.trim()) {
-    return { context: '' };
+    return { context: '', sources: [] };
   }
 
   const docs = await retriever.invoke(searchQuery);
-  const context = docs.map((d) => d.pageContent).join('\n\n');
-  return { context };
+
+  const sources: RetrievedSource[] = docs.map((d, i) => {
+    const meta = (d.metadata ?? {}) as { source?: unknown; page?: unknown };
+    const source = typeof meta.source === 'string' && meta.source ? meta.source : 'unknown';
+    const pageNum = Number(meta.page);
+    const page = Number.isFinite(pageNum) ? pageNum : 0;
+    return { id: i + 1, source, page };
+  });
+
+  const context = docs
+    .map((d, i) => {
+      const s = sources[i]!;
+      return `[${s.id}] ${s.source}, p. ${s.page}\n${d.pageContent}`;
+    })
+    .join('\n\n');
+
+  return { context, sources };
 }
 
 export async function shariaAuditNode(state: AgentState): Promise<AgentStateUpdate> {
-  const systemPrompt = `
-    You are a Senior Sharia Auditor.
-
-    REFERENCE STANDARDS (From Knowledge Base):
-    ${state.context}
-
-    USER'S UPLOADED DOCUMENT (If any):
-    ${state.documentText ? state.documentText : 'No document uploaded.'}
-
-    INSTRUCTIONS:
-    - If a document is provided, perform a Sharia audit against the Reference Standards.
-    - Look for Riba (interest) or Gharar (uncertainty).
-    - If no document is provided, answer the user's question using the Reference Standards.
-    - Always base your answers on the provided context.
-    `;
+  const systemPrompt = buildHalimSystemPrompt({
+    context: state.context,
+    documentText: state.documentText,
+    sources: state.sources,
+  });
 
   const llm = getLlm();
   const messagesToSend = [new SystemMessage(systemPrompt), ...state.messages];

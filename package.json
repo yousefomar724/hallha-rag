@@ -31,6 +31,7 @@
     "better-auth": "^1.6.9",
     "cors": "^2.8.5",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.4.1",
     "langsmith": "^0.5.26",
     "mongodb": "^6.20.0",
     "multer": "^2.1.1",

@@ -4,12 +4,18 @@ import { ingestPdfToPinecone } from '../rag/ingest.js';
 import { HttpError } from '../middleware/error.js';
 import { requireAuth } from '../middleware/require-auth.js';
 import { requireCustomKnowledgePlan } from '../middleware/usage-limit.js';
+import {
+  uploadKnowledgeMinuteLimiter,
+  uploadKnowledgeDailyLimiter,
+} from '../middleware/rate-limit.js';
 
 export const uploadKnowledgeRouter: Router = Router();
 
 uploadKnowledgeRouter.post(
   '/upload-knowledge',
   requireAuth,
+  uploadKnowledgeMinuteLimiter,
+  uploadKnowledgeDailyLimiter,
   requireCustomKnowledgePlan,
   diskUpload.single('file'),
   async (req, res, next) => {

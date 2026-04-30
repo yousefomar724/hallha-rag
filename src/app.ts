@@ -45,6 +45,10 @@ function buildCorsOrigin(): CorsOptions['origin'] {
 export function createApp(): Express {
   const app = express();
 
+  // Behind Nginx / Cloudflare in production: trust the first hop so req.ip reflects the
+  // real client address (used by express-rate-limit when there is no authed user).
+  app.set('trust proxy', 1);
+
   const authHandler = toNodeHandler(auth);
   app.all('/api/auth/*splat', (req, res, next) => {
     void authHandler(req, res).catch(next);
