@@ -1,15 +1,25 @@
 import { END, START, StateGraph, type CompiledStateGraph } from '@langchain/langgraph';
 import { AgentStateAnnotation } from './state.js';
-import { retrieveShariaRules, shariaAuditNode } from './nodes.js';
+import {
+  greetingReplyNode,
+  retrieveShariaRules,
+  routeOnEntry,
+  shariaAuditNode,
+} from './nodes.js';
 import { getCheckpointer } from '../lib/mongo.js';
 
 export function buildWorkflow() {
   return new StateGraph(AgentStateAnnotation)
+    .addNode('greetingReply', greetingReplyNode)
     .addNode('retrieve', retrieveShariaRules)
     .addNode('audit', shariaAuditNode)
-    .addEdge(START, 'retrieve')
+    .addConditionalEdges(START, routeOnEntry, {
+      greeting: 'greetingReply',
+      audit: 'retrieve',
+    })
     .addEdge('retrieve', 'audit')
-    .addEdge('audit', END);
+    .addEdge('audit', END)
+    .addEdge('greetingReply', END);
 }
 
 let compiled: ReturnType<ReturnType<typeof buildWorkflow>['compile']> | null = null;

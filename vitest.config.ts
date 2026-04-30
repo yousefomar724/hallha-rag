@@ -17,6 +17,10 @@ export default defineConfig({
       AUTH_TRUSTED_ORIGINS: 'http://127.0.0.1:3000',
       MONGO_ADAPTER_USE_TRANSACTIONS: 'false',
       SWAGGER_ENABLED: 'false',
+      AWS_REGION: 'us-east-1',
+      AWS_S3_BUCKET_NAME: 'test-bucket',
+      AWS_ACCESS_KEY_ID: 'test-access-key',
+      AWS_SECRET_ACCESS_KEY: 'test-secret-key',
     },
   },
 });

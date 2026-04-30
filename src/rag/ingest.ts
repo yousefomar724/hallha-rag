@@ -1,6 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import { Document } from '@langchain/core/documents';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { getEmbeddings } from '../lib/embeddings.js';
@@ -16,21 +14,21 @@ export class IngestError extends Error {
   }
 }
 
-export async function ingestPdfToPinecone(filePath: string): Promise<string> {
-  let stat;
-  try {
-    stat = await fs.stat(filePath);
-  } catch {
-    throw new IngestError('PDF file not found after upload.');
-  }
-  if (!stat.isFile()) {
-    throw new IngestError('PDF file not found after upload.');
-  }
-  if (stat.size === 0) {
+export type IngestInput = {
+  buffer: Buffer;
+  originalName: string;
+  s3Key: string;
+  s3Url: string;
+  organizationId: string;
+};
+
+export async function ingestPdfToPinecone(input: IngestInput): Promise<string> {
+  const { buffer, originalName, s3Key, s3Url, organizationId } = input;
+
+  if (!buffer || buffer.length === 0) {
     throw new IngestError('Uploaded file is empty.');
   }
 
-  const buffer = await fs.readFile(filePath);
   let pages: string[];
   try {
     const extracted = await extractPdfText(new Uint8Array(buffer));
@@ -42,12 +40,12 @@ export async function ingestPdfToPinecone(filePath: string): Promise<string> {
     );
   }
 
-  const source = path.basename(filePath);
+  const source = originalName;
   const docs = pages.map(
     (pageContent, i) =>
       new Document({
         pageContent,
-        metadata: { source, page: i + 1 },
+        metadata: { source, page: i + 1, s3Key, s3Url, organizationId },
       }),
   );
 
@@ -71,7 +69,10 @@ export async function ingestPdfToPinecone(filePath: string): Promise<string> {
   const pineconeIndex = getPineconeClient().Index(env.PINECONE_INDEX);
   const namespace = pineconeIndex.namespace('');
 
-  logger.info({ source, pageCount: pages.length, chunkCount: usable.length }, 'Ingesting PDF chunks');
+  logger.info(
+    { source, pageCount: pages.length, chunkCount: usable.length, s3Key },
+    'Ingesting PDF chunks',
+  );
 
   const embeddings = getEmbeddings();
   const vectors = await embeddings.embedDocuments(usable.map((c) => c.pageContent));
@@ -89,13 +90,22 @@ export async function ingestPdfToPinecone(filePath: string): Promise<string> {
       if (!values?.length) {
         throw new IngestError('Missing embedding vector for a text chunk.');
       }
-      const meta = doc.metadata as { source?: string; page?: number };
+      const meta = doc.metadata as {
+        source?: string;
+        page?: number;
+        s3Key?: string;
+        s3Url?: string;
+        organizationId?: string;
+      };
       return {
         id: randomUUID(),
         values,
         metadata: {
           source: meta.source ?? source,
           page: meta.page ?? 0,
+          s3Key: meta.s3Key ?? s3Key,
+          s3Url: meta.s3Url ?? s3Url,
+          organizationId: meta.organizationId ?? organizationId,
           [textKey]: doc.pageContent,
         },
       };

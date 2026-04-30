@@ -15,12 +15,21 @@ vi.mock('../src/rag/ingest.js', async () => {
   };
 });
 
+vi.mock('../src/lib/s3.js', () => ({
+  putKnowledgeObject: vi.fn(async () => ({
+    key: 'knowledge/test/abc-rulebook.pdf',
+    url: 'https://example.com/knowledge/test/abc-rulebook.pdf',
+  })),
+}));
+
 const { createApp } = await import('../src/app.js');
 const { ingestPdfToPinecone } = await import('../src/rag/ingest.js');
+const { putKnowledgeObject } = await import('../src/lib/s3.js');
 
 describe('POST /upload-knowledge', () => {
   beforeEach(() => {
     vi.mocked(ingestPdfToPinecone).mockClear();
+    vi.mocked(putKnowledgeObject).mockClear();
   });
 
   it('rejects requests without a file with 400', async () => {
@@ -65,12 +74,33 @@ describe('POST /upload-knowledge', () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('success');
     expect(res.body.message).toMatch(/document chunks/);
+    expect(res.body.source).toEqual({
+      name: 'rulebook.pdf',
+      key: 'knowledge/test/abc-rulebook.pdf',
+      url: 'https://example.com/knowledge/test/abc-rulebook.pdf',
+    });
+    expect(putKnowledgeObject).toHaveBeenCalledOnce();
+    expect(putKnowledgeObject).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      'rulebook.pdf',
+      expect.any(String),
+      orgId,
+    );
     expect(ingestPdfToPinecone).toHaveBeenCalledOnce();
+    expect(ingestPdfToPinecone).toHaveBeenCalledWith({
+      buffer: expect.any(Buffer),
+      originalName: 'rulebook.pdf',
+      s3Key: 'knowledge/test/abc-rulebook.pdf',
+      s3Url: 'https://example.com/knowledge/test/abc-rulebook.pdf',
+      organizationId: orgId,
+    });
   });
 
   it('maps IngestError to HTTP 400', async () => {
     const { IngestError } = await import('../src/rag/ingest.js');
-    vi.mocked(ingestPdfToPinecone).mockRejectedValueOnce(new IngestError('Uploaded file is empty.'));
+    vi.mocked(ingestPdfToPinecone).mockRejectedValueOnce(
+      new IngestError('Could not process the uploaded PDF.'),
+    );
 
     const app = createApp();
     const { cookieHeader, userId } = await createUserWithSessionCookie(app);
@@ -81,9 +111,10 @@ describe('POST /upload-knowledge', () => {
       .post('/upload-knowledge')
       .set('Cookie', cookieHeader)
       .set('Origin', TEST_AUTH_ORIGIN)
-      .attach('file', Buffer.from(''), 'empty.pdf');
+      .attach('file', Buffer.from('%PDF-1.4 fake'), 'bad.pdf');
 
     expect(res.status).toBe(400);
-    expect(res.body.detail).toMatch(/empty/);
+    expect(res.body.detail).toMatch(/Could not process/);
+    expect(putKnowledgeObject).toHaveBeenCalled();
   });
 });

@@ -117,10 +117,15 @@ chatAuditRouter.post(
 
       const lastMessage = result.messages.at(-1);
       const aiResponse = lastMessage ? asString(lastMessage.content) : '';
+      const sources = Array.isArray(result.sources) ? result.sources : [];
 
       await recordThreadActivity(req, inputs);
 
-      res.json({ response: aiResponse, thread_id: inputs.userThreadId });
+      res.json({
+        response: aiResponse,
+        thread_id: inputs.userThreadId,
+        sources,
+      });
     } catch (err) {
       next(err);
     }
@@ -189,6 +194,20 @@ chatAuditRouter.post(
       }
 
       if (!aborted) {
+        try {
+          const finalState = await graph.getState({
+            configurable: { thread_id: inputs.namespacedThreadId },
+          });
+          const sources = Array.isArray(finalState?.values?.sources)
+            ? finalState.values.sources
+            : [];
+          writeSse(res, 'sources', { sources });
+        } catch (stateErr) {
+          logger.warn(
+            { err: stateErr, threadId: inputs.namespacedThreadId },
+            'Failed to read final graph state for sources',
+          );
+        }
         await recordThreadActivity(req, inputs);
         writeSse(res, 'done', { thread_id: inputs.userThreadId });
       }

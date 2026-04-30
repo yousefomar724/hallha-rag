@@ -36,6 +36,12 @@ const envSchema = z.object({
   LANGSMITH_API_KEY: z.string().optional(),
   LANGSMITH_PROJECT: z.string().optional(),
 
+  AWS_REGION: z.string().min(1, 'AWS_REGION is required'),
+  AWS_S3_BUCKET_NAME: z.string().min(1, 'AWS_S3_BUCKET_NAME is required'),
+  AWS_ACCESS_KEY_ID: z.string().min(1, 'AWS_ACCESS_KEY_ID is required'),
+  AWS_SECRET_ACCESS_KEY: z.string().min(1, 'AWS_SECRET_ACCESS_KEY is required'),
+  AWS_S3_BUCKET_URL: z.string().optional(),
+
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 });
 

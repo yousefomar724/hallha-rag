@@ -49,12 +49,37 @@ describe('POST /chat-audit', () => {
     expect(res.status).toBe(200);
     expect(res.body.thread_id).toBe('thread-123');
     expect(res.body.response).toBe('This contract contains Riba.');
+    expect(res.body.sources).toEqual([]);
     expect(invokeMock).toHaveBeenCalledWith(
       expect.objectContaining({ documentText: '' }),
       expect.objectContaining({
         configurable: { thread_id: `${orgId}:thread-123` },
       }),
     );
+  });
+
+  it('returns structured sources alongside the response', async () => {
+    const mockSources = [
+      { id: 1, source: 'aaoifi.pdf', page: 12, url: 'https://cdn/example/aaoifi.pdf' },
+      { id: 2, source: 'shariah_resolutions.pdf', page: 4 },
+    ];
+    invokeMock.mockResolvedValueOnce({
+      messages: [new AIMessage('Riba is present in clause 3 [1].')],
+      sources: mockSources,
+    });
+
+    const app = createApp();
+    const { cookieHeader } = await createUserWithSessionCookie(app);
+
+    const res = await request(app)
+      .post('/chat-audit')
+      .set('Cookie', cookieHeader)
+      .set('Origin', TEST_AUTH_ORIGIN)
+      .field('thread_id', 'thread-cite')
+      .field('message', 'audit this');
+
+    expect(res.status).toBe(200);
+    expect(res.body.sources).toEqual(mockSources);
   });
 
   it('treats non-PDF uploads as UTF-8 text', async () => {
