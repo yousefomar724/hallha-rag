@@ -5,7 +5,7 @@ import {
   organizationDocToPlanState,
   organizationUpdateFilter,
 } from '../lib/org-billing.js';
-import { checkAuditQuota, canUploadCustomKnowledge } from '../lib/plans.js';
+import { checkAuditQuota } from '../lib/plans.js';
 import { logger } from '../lib/logger.js';
 import { HttpError } from './error.js';
 
@@ -64,28 +64,3 @@ export function usageLimitAudit(): RequestHandler {
     }
   };
 }
-
-/** Custom knowledge upload: Business + Enterprise only. */
-export const requireCustomKnowledgePlan: RequestHandler = async (req, _res, next) => {
-  try {
-    const orgId = req.activeOrgId;
-    if (!orgId) {
-      throw new HttpError(500, 'Missing organization context.');
-    }
-    const db = await getDb();
-    const orgDoc = await findOrganizationDocument(db, orgId);
-    if (!orgDoc) {
-      throw new HttpError(500, 'Organization not found.');
-    }
-    const planState = organizationDocToPlanState(orgDoc as Record<string, unknown>);
-    if (!canUploadCustomKnowledge(planState.plan)) {
-      throw new HttpError(
-        402,
-        'Custom knowledge base uploads require a Business or Enterprise plan. Upgrade to continue.',
-      );
-    }
-    next();
-  } catch (err) {
-    next(err);
-  }
-};

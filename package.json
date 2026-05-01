@@ -17,7 +17,10 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "dev:auth-smoke": "tsx --env-file=.env scripts/dev-auth-smoke.ts"
+    "dev:auth-smoke": "tsx --env-file=.env scripts/dev-auth-smoke.ts",
+    "seed:admin": "tsx --env-file=.env scripts/seed-superadmin.ts",
+    "dev:admin": "pnpm --filter admin dev",
+    "build:admin": "pnpm --filter admin build"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1039.0",

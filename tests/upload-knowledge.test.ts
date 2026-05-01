@@ -3,7 +3,7 @@ import request from 'supertest';
 import {
   createUserWithSessionCookie,
   getPrimaryOrgIdForUser,
-  setOrganizationPlan,
+  setUserRole,
   TEST_AUTH_ORIGIN,
 } from './test-helpers/auth-flow.js';
 
@@ -32,11 +32,22 @@ describe('POST /upload-knowledge', () => {
     vi.mocked(putKnowledgeObject).mockClear();
   });
 
-  it('rejects requests without a file with 400', async () => {
+  it('rejects non-admin users with 403', async () => {
+    const app = createApp();
+    const { cookieHeader } = await createUserWithSessionCookie(app);
+    const res = await request(app)
+      .post('/upload-knowledge')
+      .set('Cookie', cookieHeader)
+      .set('Origin', TEST_AUTH_ORIGIN)
+      .attach('file', Buffer.from('%PDF-1.4 fake'), 'rulebook.pdf');
+    expect(res.status).toBe(403);
+    expect(ingestPdfToPinecone).not.toHaveBeenCalled();
+  });
+
+  it('rejects admin requests without a file with 400', async () => {
     const app = createApp();
     const { cookieHeader, userId } = await createUserWithSessionCookie(app);
-    const orgId = await getPrimaryOrgIdForUser(userId);
-    await setOrganizationPlan(orgId, 'business');
+    await setUserRole(userId, 'admin');
 
     const res = await request(app)
       .post('/upload-knowledge')
@@ -46,24 +57,11 @@ describe('POST /upload-knowledge', () => {
     expect(res.body.detail).toMatch(/file/i);
   });
 
-  it('rejects free-plan orgs with 402', async () => {
-    const app = createApp();
-    const { cookieHeader } = await createUserWithSessionCookie(app);
-    const res = await request(app)
-      .post('/upload-knowledge')
-      .set('Cookie', cookieHeader)
-      .set('Origin', TEST_AUTH_ORIGIN)
-      .attach('file', Buffer.from('%PDF-1.4 fake'), 'rulebook.pdf');
-    expect(res.status).toBe(402);
-    expect(res.body.detail).toMatch(/Business/i);
-    expect(ingestPdfToPinecone).not.toHaveBeenCalled();
-  });
-
-  it('returns success message when ingest succeeds on business plan', async () => {
+  it('returns success message when admin uploads a file', async () => {
     const app = createApp();
     const { cookieHeader, userId } = await createUserWithSessionCookie(app);
+    await setUserRole(userId, 'admin');
     const orgId = await getPrimaryOrgIdForUser(userId);
-    await setOrganizationPlan(orgId, 'business');
 
     const res = await request(app)
       .post('/upload-knowledge')
@@ -96,7 +94,7 @@ describe('POST /upload-knowledge', () => {
     });
   });
 
-  it('maps IngestError to HTTP 400', async () => {
+  it('maps IngestError to HTTP 400 for admin', async () => {
     const { IngestError } = await import('../src/rag/ingest.js');
     vi.mocked(ingestPdfToPinecone).mockRejectedValueOnce(
       new IngestError('Could not process the uploaded PDF.'),
@@ -104,8 +102,7 @@ describe('POST /upload-knowledge', () => {
 
     const app = createApp();
     const { cookieHeader, userId } = await createUserWithSessionCookie(app);
-    const orgId = await getPrimaryOrgIdForUser(userId);
-    await setOrganizationPlan(orgId, 'business');
+    await setUserRole(userId, 'admin');
 
     const res = await request(app)
       .post('/upload-knowledge')

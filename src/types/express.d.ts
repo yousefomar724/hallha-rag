@@ -2,6 +2,7 @@ export type AuthedUser = {
   id: string;
   email: string;
   name?: string | null;
+  role?: string | null;
 };
 
 export type AuthedSession = {

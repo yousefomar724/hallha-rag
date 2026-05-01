@@ -3,21 +3,15 @@ import { memoryUpload } from '../middleware/upload.js';
 import { ingestPdfToPinecone } from '../rag/ingest.js';
 import { putKnowledgeObject } from '../lib/s3.js';
 import { HttpError } from '../middleware/error.js';
-import { requireAuth } from '../middleware/require-auth.js';
-import { requireCustomKnowledgePlan } from '../middleware/usage-limit.js';
-import {
-  uploadKnowledgeMinuteLimiter,
-  uploadKnowledgeDailyLimiter,
-} from '../middleware/rate-limit.js';
+import { requireAdmin } from '../middleware/require-admin.js';
+import { uploadKnowledgeDailyLimiter } from '../middleware/rate-limit.js';
 
 export const uploadKnowledgeRouter: Router = Router();
 
 uploadKnowledgeRouter.post(
   '/upload-knowledge',
-  requireAuth,
-  uploadKnowledgeMinuteLimiter,
+  requireAdmin,
   uploadKnowledgeDailyLimiter,
-  requireCustomKnowledgePlan,
   memoryUpload.single('file'),
   async (req, res, next) => {
     try {

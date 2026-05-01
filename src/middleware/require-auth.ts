@@ -39,6 +39,7 @@ export const requireAuth: RequestHandler = async (req, _res, next) => {
       id: sessionData.user.id,
       email: sessionData.user.email,
       name: sessionData.user.name,
+      role: (sessionData.user as { role?: string | null }).role ?? null,
     };
     req.authSession = {
       id: sessionData.session.id,

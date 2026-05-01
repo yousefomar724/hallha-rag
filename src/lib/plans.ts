@@ -4,7 +4,6 @@ export type PlanLimits = {
   monthlyAudits: number;
   maxDocPages: number;
   maxSeats: number;
-  customKnowledgeBase: boolean;
   apiAccess: boolean;
 };
 
@@ -26,7 +25,6 @@ export const PLANS: Record<PlanKey, PlanDefinition> = {
       monthlyAudits: 5,
       maxDocPages: 10,
       maxSeats: 1,
-      customKnowledgeBase: false,
       apiAccess: false,
     },
   },
@@ -38,7 +36,6 @@ export const PLANS: Record<PlanKey, PlanDefinition> = {
       monthlyAudits: 50,
       maxDocPages: 50,
       maxSeats: 1,
-      customKnowledgeBase: false,
       apiAccess: false,
     },
   },
@@ -50,7 +47,6 @@ export const PLANS: Record<PlanKey, PlanDefinition> = {
       monthlyAudits: 250,
       maxDocPages: UNLIMITED,
       maxSeats: 3,
-      customKnowledgeBase: true,
       apiAccess: false,
     },
   },
@@ -62,7 +58,6 @@ export const PLANS: Record<PlanKey, PlanDefinition> = {
       monthlyAudits: UNLIMITED,
       maxDocPages: UNLIMITED,
       maxSeats: UNLIMITED,
-      customKnowledgeBase: true,
       apiAccess: true,
     },
   },
@@ -99,8 +94,4 @@ export function checkAuditQuota(org: OrgPlanState): AuditQuotaCheck {
     allowed: false,
     reason: `Monthly audit limit reached for the ${getPlan(org.plan).name} plan. Upgrade or purchase an Audit Pack to continue.`,
   };
-}
-
-export function canUploadCustomKnowledge(planKey: PlanKey): boolean {
-  return getPlan(planKey).limits.customKnowledgeBase;
 }

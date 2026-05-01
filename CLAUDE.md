@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-Package manager is **pnpm** (>=9), Node >=20. All scripts auto-load `.env`.
+Package manager is **pnpm** (>=9), Node >=20. Workspace root is `pnpm-workspace.yaml` (packages: `.` + `admin`). All scripts auto-load `.env`.
 
 - `pnpm dev` — watch-mode dev server via `tsx` (port 8000)
 - `pnpm build` — `tsc` emit to `dist/`
@@ -13,8 +13,22 @@ Package manager is **pnpm** (>=9), Node >=20. All scripts auto-load `.env`.
 - `pnpm test` — Vitest run (single file: `pnpm test tests/chat-audit.test.ts`; single test: `pnpm test -t "rejects missing thread_id"`)
 - `pnpm test:watch` — Vitest watch
 - `pnpm lint` / `pnpm format` — ESLint / Prettier
+- `pnpm dev:admin` — start admin SPA dev server (Vite, port 5173)
+- `pnpm build:admin` — build admin SPA to `admin/dist/`
+- `pnpm seed:admin` — seed the superadmin user (requires `SEED_ADMIN_EMAIL` + `SEED_ADMIN_PASSWORD` in `.env`)
 
 `vitest.config.ts` injects fake `GROQ_API_KEY`, `PINECONE_API_KEY`, `MONGO_URI` so tests don't need `.env` — but tests are expected to mock external services (see `tests/*.test.ts`), not hit them.
+
+## Seeding
+
+`scripts/seed-superadmin.ts` creates one superadmin user. Idempotent — safe to re-run.
+
+```env
+SEED_ADMIN_EMAIL=admin@hallha.com
+SEED_ADMIN_PASSWORD=<strong-password>
+```
+
+Run with `pnpm seed:admin`. The user is created via Better-Auth's `signUpEmail` (which auto-creates an org), then patched to `role: 'superadmin', emailVerified: true`.
 
 ## Architecture
 
@@ -48,7 +62,30 @@ Express 5 + TypeScript port of a Python/FastAPI Sharia-compliance auditor. Two e
 
 ## Configuration
 
-`config/env.ts` validates env via Zod and `process.exit(1)`s on failure. Required: `GROQ_API_KEY`, `PINECONE_API_KEY`, `MONGO_URI`. Optional defaults: `GROQ_MODEL=llama-3.3-70b-versatile`, `PORT=8000`, `CORS_ORIGIN=*`, `PINECONE_INDEX=hallha`, `MONGO_DB_NAME=sharia_app`, `MONGO_CHECKPOINT_COLLECTION=checkpoints_langgraph_js`, `MONGO_CHECKPOINT_WRITES_COLLECTION=checkpoint_writes_langgraph_js`. Setting any `LANGSMITH_*` enables LangSmith auto-tracing.
+`config/env.ts` validates env via Zod and `process.exit(1)`s on failure. Required: `GROQ_API_KEY`, `PINECONE_API_KEY`, `MONGO_URI`. Optional defaults: `GROQ_MODEL=llama-3.3-70b-versatile`, `PORT=8000`, `CORS_ORIGIN=*`, `PINECONE_INDEX=hallha`, `MONGO_DB_NAME=sharia_app`, `MONGO_CHECKPOINT_COLLECTION=checkpoints_langgraph_js`, `MONGO_CHECKPOINT_WRITES_COLLECTION=checkpoint_writes_langgraph_js`, `ADMIN_ORIGIN=http://localhost:5173`. Setting any `LANGSMITH_*` enables LangSmith auto-tracing. `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` are optional — only required when running `pnpm seed:admin`.
+
+## Admin panel
+
+`src/routes/admin.ts` exposes platform-management endpoints under `/admin/*`, all gated by `requireAdmin` (or `requireSuperadmin` for role/ban mutations):
+
+| Endpoint | Access | Purpose |
+|---|---|---|
+| `GET /admin/stats` | admin+ | Platform stats: users, orgs, plan distribution, audit totals, Pinecone chunk count |
+| `GET /admin/organizations` | admin+ | Paginated org list with plan/usage |
+| `GET /admin/organizations/:id` | admin+ | Org detail + member count + recent chats |
+| `GET /admin/users` | admin+ | Paginated user list |
+| `POST /admin/users/:id/role` | superadmin | Set user role via Better-Auth admin plugin |
+| `POST /admin/users/:id/ban` | superadmin | Ban user |
+| `POST /admin/users/:id/unban` | superadmin | Unban user |
+| `POST /upload-knowledge` | admin+ | Ingest PDF to Pinecone (was plan-gated, now admin-only) |
+
+### Roles
+
+Better-Auth `admin` plugin (`src/lib/auth.ts`) adds `role` / `banned` fields to the `user` collection. Roles: `user` (default), `admin`, `superadmin`. The `requireAdmin` middleware (`src/middleware/require-admin.ts`) composes on top of `requireAuth`.
+
+### Admin SPA (`admin/`)
+
+Vite + React + shadcn/ui frontend. Auth via `better-auth/react` `adminClient` plugin. Set `VITE_API_URL` in `admin/.env` (defaults to `http://localhost:8000`). Pages: Dashboard, Organizations, OrganizationDetail, Users, Knowledge (file upload).
 
 ## TypeScript / module conventions
 

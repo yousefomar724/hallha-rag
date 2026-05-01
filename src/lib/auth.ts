@@ -1,14 +1,15 @@
 import { betterAuth } from 'better-auth';
 import { mongodbAdapter } from 'better-auth/adapters/mongodb';
-import { organization } from 'better-auth/plugins';
+import { organization, admin } from 'better-auth/plugins';
 import { randomBytes } from 'node:crypto';
 import { env } from '../config/env.js';
 import { getDb, getMongoClient } from './mongo.js';
 import { logger } from './logger.js';
 
-const trustedOrigins = env.AUTH_TRUSTED_ORIGINS.split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
+const trustedOrigins = [
+  ...env.AUTH_TRUSTED_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean),
+  env.ADMIN_ORIGIN,
+];
 
 const db = await getDb();
 const client = await getMongoClient();
@@ -37,6 +38,9 @@ const auth = betterAuth({
     ...(env.COOKIE_DOMAIN ? { defaultCookieAttributes: { domain: env.COOKIE_DOMAIN } } : {}),
   },
   plugins: [
+    admin({
+      defaultRole: 'user',
+    }),
     organization({
       allowUserToCreateOrganization: true,
       schema: {

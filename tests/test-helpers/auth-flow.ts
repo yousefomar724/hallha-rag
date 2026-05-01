@@ -58,6 +58,18 @@ export async function setOrganizationPlan(orgId: string, plan: string): Promise<
   await db.collection('organization').updateOne(organizationUpdateFilter(doc), { $set: { plan } });
 }
 
+export async function setUserRole(userId: string, role: string): Promise<void> {
+  const db = await getDb();
+  const { ObjectId } = await import('mongodb');
+  const filter = ObjectId.isValid(userId)
+    ? { $or: [{ id: userId }, { _id: new ObjectId(userId) }] }
+    : { id: userId };
+  const result = await db.collection('user').updateOne(filter, { $set: { role } });
+  if (result.matchedCount === 0) {
+    throw new Error(`User not found for id ${userId}`);
+  }
+}
+
 export async function setOrganizationAuditUsage(orgId: string, auditsThisPeriod: number): Promise<void> {
   const db = await getDb();
   const doc = await findOrganizationDocument(db, orgId);

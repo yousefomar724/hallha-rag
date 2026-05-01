@@ -43,6 +43,11 @@ const envSchema = z.object({
   AWS_S3_BUCKET_URL: z.string().optional(),
 
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+
+  ADMIN_ORIGIN: z.string().default('http://localhost:5173'),
+
+  SEED_ADMIN_EMAIL: z.string().email().optional(),
+  SEED_ADMIN_PASSWORD: z.string().min(8).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
