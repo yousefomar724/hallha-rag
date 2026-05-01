@@ -31,7 +31,7 @@ export const PLANS: Record<PlanKey, PlanDefinition> = {
   starter: {
     key: 'starter',
     name: 'Starter',
-    priceUsd: 29,
+    priceUsd: 9,
     limits: {
       monthlyAudits: 50,
       maxDocPages: 50,
@@ -42,7 +42,7 @@ export const PLANS: Record<PlanKey, PlanDefinition> = {
   business: {
     key: 'business',
     name: 'Business',
-    priceUsd: 99,
+    priceUsd: 19,
     limits: {
       monthlyAudits: 250,
       maxDocPages: UNLIMITED,

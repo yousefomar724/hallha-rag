@@ -4,17 +4,11 @@ import { z } from 'zod';
 import { requireAuth } from '../middleware/require-auth.js';
 import { HttpError } from '../middleware/error.js';
 import { getDb } from '../lib/mongo.js';
+import { workspaceProfileSchema } from '../lib/org-profile-schema.js';
 
 export const organizationsRouter: Router = Router();
 
 const ORG_COLLECTION = 'organization';
-
-const companyProfileSchema = z.object({
-  legalName: z.string().trim().min(2),
-  registrationNumber: z.string().trim().min(1),
-  country: z.string().trim().min(2),
-  industry: z.string().trim().min(1),
-});
 
 const bankLinkSchema = z.object({
   institutionId: z.string().trim().min(1),
@@ -76,8 +70,9 @@ organizationsRouter.get('/organizations/me', requireAuth, async (req, res, next)
 
 organizationsRouter.patch('/organizations/me', requireAuth, async (req, res, next) => {
   try {
-    const data = parseBody(companyProfileSchema, req.body);
+    const data = parseBody(workspaceProfileSchema, req.body);
     const updated = await applyOrgUpdate(req.activeOrgId!, {
+      workspaceKind: data.workspaceKind,
       legalName: data.legalName,
       registrationNumber: data.registrationNumber,
       country: data.country,
