@@ -19,6 +19,7 @@ const PLAN_COLORS: Record<string, 'default' | 'secondary' | 'outline' | 'destruc
   free: 'secondary',
   starter: 'outline',
   business: 'default',
+  growth: 'default',
   enterprise: 'default',
 };
 
@@ -29,7 +30,12 @@ export function OrganizationsPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['organizations', debouncedSearch, plan],
-    queryFn: () => api.organizations({ search: debouncedSearch || undefined, plan: plan || undefined, limit: 30 }),
+    queryFn: () =>
+      api.organizations({
+        search: debouncedSearch || undefined,
+        plan: plan || undefined,
+        limit: 30,
+      }),
   });
 
   function handleSearchChange(value: string) {
@@ -55,7 +61,9 @@ export function OrganizationsPage() {
         >
           <option value="">All plans</option>
           {['free', 'starter', 'business', 'enterprise'].map((p) => (
-            <option key={p} value={p}>{p}</option>
+            <option key={p} value={p}>
+              {p}
+            </option>
           ))}
         </select>
       </div>
@@ -77,7 +85,9 @@ export function OrganizationsPage() {
               ? Array.from({ length: 8 }).map((_, i) => (
                   <TableRow key={i}>
                     {Array.from({ length: 6 }).map((_, j) => (
-                      <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
+                      <TableCell key={j}>
+                        <Skeleton className="h-4 w-full" />
+                      </TableCell>
                     ))}
                   </TableRow>
                 ))
@@ -94,8 +104,12 @@ export function OrganizationsPage() {
                     <TableCell>
                       <Badge variant={PLAN_COLORS[org.plan] ?? 'secondary'}>{org.plan}</Badge>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{org.planStatus}</TableCell>
-                    <TableCell className="text-right text-sm">{org.usageAuditsThisPeriod}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {org.planStatus}
+                    </TableCell>
+                    <TableCell className="text-right text-sm">
+                      {org.usageAuditsThisPeriod}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={org.onboardingCompleted ? 'default' : 'secondary'}>
                         {org.onboardingCompleted ? 'Yes' : 'No'}
@@ -112,7 +126,9 @@ export function OrganizationsPage() {
 
       {data?.hasMore && (
         <div className="flex justify-center">
-          <Button variant="outline" size="sm">Load more</Button>
+          <Button variant="outline" size="sm">
+            Load more
+          </Button>
         </div>
       )}
     </div>

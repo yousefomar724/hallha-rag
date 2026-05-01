@@ -28,8 +28,12 @@ function StatCard({ title, value, sub }: { title: string; value: string | number
 function StatCardSkeleton() {
   return (
     <Card>
-      <CardHeader className="pb-2"><Skeleton className="h-4 w-24" /></CardHeader>
-      <CardContent><Skeleton className="h-8 w-16 mt-1" /></CardContent>
+      <CardHeader className="pb-2">
+        <Skeleton className="h-4 w-24" />
+      </CardHeader>
+      <CardContent>
+        <Skeleton className="h-8 w-16 mt-1" />
+      </CardContent>
     </Card>
   );
 }
@@ -42,7 +46,9 @@ export function DashboardPage() {
   });
 
   if (error) {
-    return <p className="text-destructive text-sm">Failed to load stats: {(error as Error).message}</p>;
+    return (
+      <p className="text-destructive text-sm">Failed to load stats: {(error as Error).message}</p>
+    );
   }
 
   return (
@@ -54,8 +60,16 @@ export function DashboardPage() {
           Array.from({ length: 4 }).map((_, i) => <StatCardSkeleton key={i} />)
         ) : (
           <>
-            <StatCard title="Total Users" value={data.users.total} sub={`+${data.users.last30d} last 30 days`} />
-            <StatCard title="Organizations" value={data.organizations.total} sub={`${data.organizations.onboardingCompleted} onboarded`} />
+            <StatCard
+              title="Total Users"
+              value={data.users.total}
+              sub={`+${data.users.last30d} last 30 days`}
+            />
+            <StatCard
+              title="Organizations"
+              value={data.organizations.total}
+              sub={`${data.organizations.onboardingCompleted} onboarded`}
+            />
             <StatCard title="Audits This Period" value={data.audits.currentPeriodTotal} />
             <StatCard
               title="Knowledge Chunks"
@@ -75,7 +89,15 @@ export function DashboardPage() {
             <div className="flex flex-wrap gap-3">
               {Object.entries(data.organizations.byPlan).map(([plan, count]) => (
                 <div key={plan} className="flex items-center gap-2">
-                  <Badge variant={(PLAN_COLORS[plan] ?? 'secondary') as 'default' | 'secondary' | 'outline' | 'destructive'}>
+                  <Badge
+                    variant={
+                      (PLAN_COLORS[plan] ?? 'secondary') as
+                        | 'default'
+                        | 'secondary'
+                        | 'outline'
+                        | 'destructive'
+                    }
+                  >
                     {plan}
                   </Badge>
                   <span className="text-sm font-medium">{count}</span>
