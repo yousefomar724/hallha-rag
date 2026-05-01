@@ -56,7 +56,10 @@ export type PaginatedResponse<T> = {
 
 export type KnowledgeFileItem = {
   key: string;
+  /** Original upload filename */
   name: string;
+  /** Human-facing label (admin or derived from key) */
+  displayName: string;
   size: number;
   lastModified: string;
   url: string;
@@ -113,7 +116,11 @@ export const api = {
       body: JSON.stringify({ key }),
     }),
 
-  uploadKnowledge: (file: File, onProgress?: (loaded: number, total: number) => void) =>
+  uploadKnowledge: (
+    file: File,
+    displayName?: string,
+    onProgress?: (loaded: number, total: number) => void,
+  ) =>
     new Promise<unknown>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', `${BASE}/upload-knowledge`);
@@ -144,6 +151,8 @@ export const api = {
       xhr.onerror = () => reject(new Error('Network error'));
       const fd = new FormData();
       fd.append('file', file);
+      const trimmed = displayName?.trim();
+      if (trimmed) fd.append('displayName', trimmed);
       xhr.send(fd);
     }),
 };

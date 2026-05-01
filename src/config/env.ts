@@ -44,6 +44,9 @@ const envSchema = z.object({
 
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 
+  /** Tavily web search for Halim agent tool-calling */
+  TAVILY_API_KEY: z.string().min(1, 'TAVILY_API_KEY is required'),
+
   ADMIN_ORIGIN: z.string().default('http://localhost:5173'),
 
   SEED_ADMIN_EMAIL: z.string().email().optional(),

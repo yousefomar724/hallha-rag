@@ -1,24 +1,37 @@
 import { END, START, StateGraph, type CompiledStateGraph } from '@langchain/langgraph';
+import { ToolNode } from '@langchain/langgraph/prebuilt';
 import { AgentStateAnnotation } from './state.js';
 import {
   greetingReplyNode,
+  harvestWebSourcesNode,
   retrieveShariaRules,
+  routeAfterAudit,
   routeOnEntry,
   shariaAuditNode,
 } from './nodes.js';
+import { agentTools } from './tools.js';
 import { getCheckpointer } from '../lib/mongo.js';
 
 export function buildWorkflow() {
+  const toolsNode = new ToolNode([...agentTools]);
+
   return new StateGraph(AgentStateAnnotation)
     .addNode('greetingReply', greetingReplyNode)
     .addNode('retrieve', retrieveShariaRules)
     .addNode('audit', shariaAuditNode)
+    .addNode('tools', toolsNode)
+    .addNode('harvestWebSources', harvestWebSourcesNode)
     .addConditionalEdges(START, routeOnEntry, {
       greeting: 'greetingReply',
       audit: 'retrieve',
     })
     .addEdge('retrieve', 'audit')
-    .addEdge('audit', END)
+    .addConditionalEdges('audit', routeAfterAudit, {
+      tools: 'tools',
+      harvestWebSources: 'harvestWebSources',
+    })
+    .addEdge('tools', 'audit')
+    .addEdge('harvestWebSources', END)
     .addEdge('greetingReply', END);
 }
 

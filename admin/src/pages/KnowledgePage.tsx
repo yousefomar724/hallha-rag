@@ -23,6 +23,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { toast } from 'sonner';
+import { Input } from '@/components/ui/input';
 
 type Phase = 'idle' | 'uploading' | 'processing' | 'done' | 'error';
 
@@ -38,11 +39,12 @@ function formatDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
 }
 
-type FilePendingDelete = { key: string; name: string };
+type FilePendingDelete = { key: string; displayLabel: string; originalFilename: string };
 
 export function KnowledgePage() {
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
+  const [displayNameInput, setDisplayNameInput] = useState('');
   const [dragging, setDragging] = useState(false);
   const [phase, setPhase] = useState<Phase>('idle');
   const [message, setMessage] = useState<string | undefined>();
@@ -90,7 +92,10 @@ export function KnowledgePage() {
     setUploadIndeterminate(false);
 
     try {
-      const result = (await api.uploadKnowledge(file, (loaded, total) => {
+      const result = (await api.uploadKnowledge(
+        file,
+        displayNameInput.trim() || undefined,
+        (loaded, total) => {
         if (total <= 0) {
           setUploadIndeterminate(true);
           return;
@@ -100,10 +105,12 @@ export function KnowledgePage() {
         if (loaded >= total) {
           setPhase('processing');
         }
-      })) as { message?: string };
+      },
+      )) as { message?: string };
       setPhase('done');
       setMessage(result.message ?? 'Uploaded successfully.');
       toast.success(`${file.name} ingested.`);
+      setDisplayNameInput('');
       void queryClient.invalidateQueries({ queryKey: ['knowledge-files'] });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed.';
@@ -146,8 +153,14 @@ export function KnowledgePage() {
             <AlertTitle>This action cannot be undone</AlertTitle>
             <AlertDescription>
               This will delete{' '}
-              <span className="font-medium text-foreground">{filePendingDelete?.name}</span> from
-              storage and remove all indexed chunks for this document from the knowledge base.
+              <span className="font-medium text-foreground">{filePendingDelete?.displayLabel}</span>
+              {filePendingDelete &&
+              filePendingDelete.originalFilename !== filePendingDelete.displayLabel ? (
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  File: {filePendingDelete.originalFilename}
+                </span>
+              ) : null}{' '}
+              from storage and remove all indexed chunks for this document from the knowledge base.
             </AlertDescription>
           </Alert>
           <AlertDialogFooter>
@@ -177,7 +190,20 @@ export function KnowledgePage() {
         <CardHeader>
           <CardTitle className="text-base">Upload PDF</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <label htmlFor="knowledge-display-name" className="text-sm font-medium">
+              Display name <span className="font-normal text-muted-foreground">(optional)</span>
+            </label>
+            <Input
+              id="knowledge-display-name"
+              placeholder="e.g. AAOIFI Shariah Standards 2024"
+              value={displayNameInput}
+              onChange={(e) => setDisplayNameInput(e.target.value)}
+              disabled={busy}
+              autoComplete="off"
+            />
+          </div>
           <div
             onDragOver={(e) => {
               e.preventDefault();
@@ -258,6 +284,7 @@ export function KnowledgePage() {
                 setLastFile(null);
                 setUploadProgress(null);
                 setMessage(undefined);
+                setDisplayNameInput('');
                 if (inputRef.current) inputRef.current.value = '';
               }}
             >
@@ -300,9 +327,18 @@ export function KnowledgePage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {files.map((f) => (
+                {files.map((f) => {
+                  const label = f.displayName?.trim()?.length ? f.displayName : f.name;
+                  return (
                   <TableRow key={f.key}>
-                    <TableCell className="font-medium">{f.name}</TableCell>
+                    <TableCell className="max-w-[240px]">
+                      <div className="font-medium">{label}</div>
+                      {f.name !== label ? (
+                        <div className="truncate text-xs text-muted-foreground" title={f.name}>
+                          {f.name}
+                        </div>
+                      ) : null}
+                    </TableCell>
                     <TableCell className="text-end text-muted-foreground">{formatBytes(f.size)}</TableCell>
                     <TableCell className="text-end text-muted-foreground">{formatDate(f.lastModified)}</TableCell>
                     <TableCell className="text-end">
@@ -326,13 +362,20 @@ export function KnowledgePage() {
                         size="sm"
                         className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                         disabled={deleteMutation.isPending}
-                        onClick={() => setFilePendingDelete({ key: f.key, name: f.name })}
+                        onClick={() =>
+                          setFilePendingDelete({
+                            key: f.key,
+                            displayLabel: label,
+                            originalFilename: f.name,
+                          })
+                        }
                       >
                         Remove
                       </Button>
                     </TableCell>
                   </TableRow>
-                ))}
+                  )
+                })}
               </TableBody>
             </Table>
           )}

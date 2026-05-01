@@ -22,14 +22,24 @@ vi.mock('../src/lib/s3.js', () => ({
   })),
 }));
 
+vi.mock('../src/lib/knowledge-files.js', () => ({
+  recordKnowledgeFile: vi.fn(async () => {}),
+  ensureKnowledgeFileIndexes: vi.fn(async () => {}),
+  getKnowledgeFileMetaForKeys: vi.fn(async () => new Map()),
+  deleteKnowledgeFileByS3Key: vi.fn(async () => {}),
+  upsertKnowledgeFileBackfill: vi.fn(async () => {}),
+}));
+
 const { createApp } = await import('../src/app.js');
 const { ingestPdfToPinecone } = await import('../src/rag/ingest.js');
 const { putKnowledgeObject } = await import('../src/lib/s3.js');
+const { recordKnowledgeFile } = await import('../src/lib/knowledge-files.js');
 
 describe('POST /upload-knowledge', () => {
   beforeEach(() => {
     vi.mocked(ingestPdfToPinecone).mockClear();
     vi.mocked(putKnowledgeObject).mockClear();
+    vi.mocked(recordKnowledgeFile).mockClear();
   });
 
   it('rejects non-admin users with 403', async () => {
@@ -74,6 +84,7 @@ describe('POST /upload-knowledge', () => {
     expect(res.body.message).toMatch(/document chunks/);
     expect(res.body.source).toEqual({
       name: 'rulebook.pdf',
+      displayName: 'rulebook.pdf',
       key: 'knowledge/test/abc-rulebook.pdf',
       url: 'https://example.com/knowledge/test/abc-rulebook.pdf',
     });
@@ -92,6 +103,39 @@ describe('POST /upload-knowledge', () => {
       s3Url: 'https://example.com/knowledge/test/abc-rulebook.pdf',
       organizationId: orgId,
     });
+    expect(recordKnowledgeFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        s3Key: 'knowledge/test/abc-rulebook.pdf',
+        organizationId: orgId,
+        originalName: 'rulebook.pdf',
+        displayName: 'rulebook.pdf',
+        uploadedBy: userId,
+      }),
+    );
+  });
+
+  it('accepts optional displayName and stores it on the knowledge_files doc', async () => {
+    const app = createApp();
+    const { cookieHeader, userId } = await createUserWithSessionCookie(app);
+    await setUserRole(userId, 'admin');
+    const orgId = await getPrimaryOrgIdForUser(userId);
+
+    const res = await request(app)
+      .post('/upload-knowledge')
+      .set('Cookie', cookieHeader)
+      .set('Origin', TEST_AUTH_ORIGIN)
+      .field('displayName', 'AAOIFI Standards (EN)')
+      .attach('file', Buffer.from('%PDF-1.4 fake'), 'rulebook.pdf');
+
+    expect(res.status).toBe(200);
+    expect(res.body.source.displayName).toBe('AAOIFI Standards (EN)');
+    expect(recordKnowledgeFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: orgId,
+        originalName: 'rulebook.pdf',
+        displayName: 'AAOIFI Standards (EN)',
+      }),
+    );
   });
 
   it('maps IngestError to HTTP 400 for admin', async () => {

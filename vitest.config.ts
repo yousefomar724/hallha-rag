@@ -21,6 +21,7 @@ export default defineConfig({
       AWS_S3_BUCKET_NAME: 'test-bucket',
       AWS_ACCESS_KEY_ID: 'test-access-key',
       AWS_SECRET_ACCESS_KEY: 'test-secret-key',
+      TAVILY_API_KEY: 'test-tavily-key',
     },
   },
 });

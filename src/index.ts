@@ -3,12 +3,14 @@ import { env } from './config/env.js';
 import { logger } from './lib/logger.js';
 import { closeMongo } from './lib/mongo.js';
 import { cleanupOrphanCheckpoints, ensureChatHistoryIndexes } from './lib/chat-history.js';
+import { ensureKnowledgeFileIndexes } from './lib/knowledge-files.js';
 
 const app = createApp();
 
 void (async () => {
   try {
     await ensureChatHistoryIndexes();
+    await ensureKnowledgeFileIndexes();
     await cleanupOrphanCheckpoints();
   } catch (err) {
     logger.error({ err }, 'Chat history bootstrap failed (continuing)');

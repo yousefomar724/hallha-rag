@@ -60,8 +60,21 @@ describe('POST /chat-audit', () => {
 
   it('returns structured sources alongside the response', async () => {
     const mockSources = [
-      { id: 1, source: 'aaoifi.pdf', page: 12, url: 'https://cdn/example/aaoifi.pdf' },
-      { id: 2, source: 'shariah_resolutions.pdf', page: 4 },
+      {
+        id: 1,
+        type: 'document' as const,
+        source: 'aaoifi.pdf',
+        displayName: 'AAOIFI Standards',
+        page: 12,
+        url: 'https://cdn/example/aaoifi.pdf',
+      },
+      {
+        id: 2,
+        type: 'document' as const,
+        source: 'shariah_resolutions.pdf',
+        displayName: 'Shariah resolutions',
+        page: 4,
+      },
     ];
     invokeMock.mockResolvedValueOnce({
       messages: [new AIMessage('Riba is present in clause 3 [1].')],

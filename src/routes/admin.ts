@@ -5,8 +5,12 @@ import { HttpError } from '../middleware/error.js';
 import { getDb } from '../lib/mongo.js';
 import { getPineconeClient } from '../lib/pinecone.js';
 import { env } from '../config/env.js';
-import { listKnowledgeObjects, deleteKnowledgeObject } from '../lib/s3.js';
+import { listKnowledgeObjects, deleteKnowledgeObject, displayNameFromObjectKey } from '../lib/s3.js';
 import { deleteKnowledgeVectorsByS3Key } from '../rag/delete-knowledge.js';
+import {
+  deleteKnowledgeFileByS3Key,
+  getKnowledgeFileMetaForKeys,
+} from '../lib/knowledge-files.js';
 
 export const adminRouter: Router = Router();
 
@@ -87,6 +91,7 @@ adminRouter.delete('/admin/knowledge-files', requireAdmin, async (req, res, next
 
     await deleteKnowledgeVectorsByS3Key(key);
     await deleteKnowledgeObject(key);
+    await deleteKnowledgeFileByS3Key(key);
 
     res.json({ ok: true });
   } catch (err) {
@@ -102,7 +107,24 @@ adminRouter.get('/admin/knowledge-files', requireAdmin, async (req, res, next) =
     const { items, nextContinuationToken } = await listKnowledgeObjects(organizationId, {
       continuationToken,
     });
-    res.json({ items, nextCursor: nextContinuationToken, hasMore: nextContinuationToken !== null });
+    const meta = await getKnowledgeFileMetaForKeys(items.map((i) => i.key));
+    const merged = items.map((item) => {
+      const m = meta.get(item.key);
+      const originalName =
+        m?.originalName?.trim()?.length ? m.originalName : item.name;
+      const displayName =
+        m?.displayName?.trim()?.length ? m.displayName : displayNameFromObjectKey(item.key);
+      return {
+        ...item,
+        name: originalName,
+        displayName,
+      };
+    });
+    res.json({
+      items: merged,
+      nextCursor: nextContinuationToken,
+      hasMore: nextContinuationToken !== null,
+    });
   } catch (err) {
     next(err);
   }

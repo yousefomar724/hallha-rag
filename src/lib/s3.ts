@@ -42,7 +42,7 @@ function buildPublicUrl(key: string): string | null {
 const OBJECT_KEY_UUID_PREFIX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}-/i;
 
-function displayNameFromObjectKey(key: string): string {
+export function displayNameFromObjectKey(key: string): string {
   const base = key.split('/').pop() ?? key;
   const stripped = base.replace(OBJECT_KEY_UUID_PREFIX, '');
   return stripped.length > 0 ? stripped : base;

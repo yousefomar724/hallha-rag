@@ -19,6 +19,7 @@
     "format": "prettier --write .",
     "dev:auth-smoke": "tsx --env-file=.env scripts/dev-auth-smoke.ts",
     "seed:admin": "tsx --env-file=.env scripts/seed-superadmin.ts",
+    "backfill:knowledge-files": "tsx --env-file=.env scripts/backfill-knowledge-files.ts",
     "dev:admin": "pnpm --filter admin dev",
     "build:admin": "pnpm --filter admin build"
   },
