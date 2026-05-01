@@ -19,6 +19,11 @@ export const AgentStateAnnotation = Annotation.Root({
     reducer: (_prev, next) => next,
     default: () => [],
   }),
+  /** Set when guardrail refuses; reset to false on each HTTP invoke from chat-audit. */
+  guardrailBlocked: Annotation<boolean>({
+    reducer: (_prev, next) => next,
+    default: () => false,
+  }),
 });
 
 export type AgentState = typeof AgentStateAnnotation.State;

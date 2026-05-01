@@ -40,6 +40,26 @@ export const chatAuditHourlyLimiter = rateLimit({
   ),
 });
 
+export const transcribeMinuteLimiter = rateLimit({
+  ...baseOptions,
+  windowMs: 60_000,
+  limit: 40,
+  keyGenerator: userOrIpKey('chat-transcribe-1m'),
+  handler: rateLimitHandler(
+    'Too many transcription requests. Please wait a minute and try again.',
+  ),
+});
+
+export const transcribeHourlyLimiter = rateLimit({
+  ...baseOptions,
+  windowMs: 60 * 60_000,
+  limit: 400,
+  keyGenerator: userOrIpKey('chat-transcribe-1h'),
+  handler: rateLimitHandler(
+    'Hourly transcription limit reached. Please wait before recording again.',
+  ),
+});
+
 export const uploadKnowledgeMinuteLimiter = rateLimit({
   ...baseOptions,
   windowMs: 60_000,

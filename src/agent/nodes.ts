@@ -7,7 +7,9 @@ import {
   formatSourceCitationLabel,
   type RetrievedSource,
 } from './prompt.js';
+import { guardrailRefusalMessageForUserText } from './audit-defaults.js';
 import { detectGreeting, greetingReplyFor } from './greeting.js';
+import { classifyRelatedToAudit, shouldSkipGuardrailLlm } from './guardrail.js';
 import type { AgentState, AgentStateUpdate } from './state.js';
 import { getDisplayNamesForS3Keys } from '../lib/knowledge-files.js';
 import { WEB_SEARCH_TOOL_MESSAGE_NAME } from './tools.js';
@@ -82,6 +84,29 @@ export function greetingReplyNode(state: AgentState): AgentStateUpdate {
     sources: [],
     context: '',
   };
+}
+
+export async function guardrailNode(state: AgentState): Promise<AgentStateUpdate> {
+  const text = lastUserText(state);
+  if (shouldSkipGuardrailLlm(state.documentText, text)) {
+    return { guardrailBlocked: false };
+  }
+
+  const related = await classifyRelatedToAudit(text);
+  if (related) {
+    return { guardrailBlocked: false };
+  }
+
+  return {
+    guardrailBlocked: true,
+    messages: [new AIMessage(guardrailRefusalMessageForUserText(text))],
+    context: '',
+    sources: [],
+  };
+}
+
+export function routeAfterGuardrail(state: AgentState): 'retrieve' | 'end' {
+  return state.guardrailBlocked ? 'end' : 'retrieve';
 }
 
 export async function retrieveShariaRules(state: AgentState): Promise<AgentStateUpdate> {

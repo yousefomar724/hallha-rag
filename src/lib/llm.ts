@@ -4,6 +4,7 @@ import { agentTools } from '../agent/tools.js';
 import { env } from '../config/env.js';
 
 let singleton: ChatGroq | null = null;
+let guardrailSingleton: ChatGroq | null = null;
 let llmWithTools: ReturnType<ChatGroq['bindTools']> | null = null;
 
 export function getLlm(): ChatGroq {
@@ -15,6 +16,18 @@ export function getLlm(): ChatGroq {
     });
   }
   return singleton;
+}
+
+/** Lightweight ChatGroq for pre-RAG topic guardrail (no tools). */
+export function getGuardrailLlm(): ChatGroq {
+  if (!guardrailSingleton) {
+    guardrailSingleton = new ChatGroq({
+      apiKey: env.GROQ_API_KEY,
+      model: env.GROQ_GUARDRAIL_MODEL,
+      temperature: 0,
+    });
+  }
+  return guardrailSingleton;
 }
 
 /** ChatGroq + Tavily tool binding for the audit node only. */

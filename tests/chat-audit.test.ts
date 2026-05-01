@@ -51,7 +51,7 @@ describe('POST /chat-audit', () => {
     expect(res.body.response).toBe('This contract contains Riba.');
     expect(res.body.sources).toEqual([]);
     expect(invokeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ documentText: '' }),
+      expect.objectContaining({ documentText: '', guardrailBlocked: false }),
       expect.objectContaining({
         configurable: { thread_id: `${orgId}:thread-123` },
       }),
@@ -111,7 +111,7 @@ describe('POST /chat-audit', () => {
 
     expect(res.status).toBe(200);
     expect(invokeMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ documentText: 'plain text contract' }),
+      expect.objectContaining({ documentText: 'plain text contract', guardrailBlocked: false }),
       expect.objectContaining({ configurable: { thread_id: `${orgId}:thread-utf8` } }),
     );
   });

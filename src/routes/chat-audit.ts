@@ -1,11 +1,13 @@
 import { Router, type Request, type Response } from 'express';
 import { HumanMessage } from '@langchain/core/messages';
-import { memoryUpload } from '../middleware/upload.js';
+import { memoryUpload, voiceUpload } from '../middleware/upload.js';
 import { requireAuth } from '../middleware/require-auth.js';
 import { usageLimitAudit } from '../middleware/usage-limit.js';
 import {
   chatAuditMinuteLimiter,
   chatAuditHourlyLimiter,
+  transcribeMinuteLimiter,
+  transcribeHourlyLimiter,
 } from '../middleware/rate-limit.js';
 import { HttpError } from '../middleware/error.js';
 import { extractPdfText } from '../utils/pdf.js';
@@ -13,6 +15,8 @@ import { getCompiledGraph } from '../agent/graph.js';
 import { getPlan, UNLIMITED } from '../lib/plans.js';
 import { namespaceThreadId, upsertThreadActivity } from '../lib/chat-history.js';
 import { logger } from '../lib/logger.js';
+import { transcribeAudioBuffer } from '../lib/groq-transcription.js';
+import { DEFAULT_AUDIT_USER_MESSAGE } from '../agent/audit-defaults.js';
 
 export const chatAuditRouter: Router = Router();
 
@@ -71,7 +75,7 @@ async function prepareAuditInputs(req: Request, res: Response): Promise<AuditInp
     }
   }
 
-  const userInput = message ?? 'Please audit the attached document.';
+  const userInput = message ?? DEFAULT_AUDIT_USER_MESSAGE;
   return {
     userThreadId: threadId,
     namespacedThreadId: namespaceThreadId(req.activeOrgId!, threadId),
@@ -80,6 +84,29 @@ async function prepareAuditInputs(req: Request, res: Response): Promise<AuditInp
     rawUserMessage: message,
   };
 }
+
+chatAuditRouter.post(
+  '/chat-audit/transcribe',
+  requireAuth,
+  transcribeMinuteLimiter,
+  transcribeHourlyLimiter,
+  voiceUpload.single('audio'),
+  async (req, res, next) => {
+    try {
+      if (!req.file?.buffer?.length) {
+        throw new HttpError(422, 'audio file is required.');
+      }
+      const rawName = req.file.originalname?.trim() || 'recording.webm';
+      const text = (await transcribeAudioBuffer(req.file.buffer, rawName)).trim();
+      if (!text.length) {
+        throw new HttpError(422, 'No speech detected in the recording.');
+      }
+      res.json({ text });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 async function recordThreadActivity(req: Request, inputs: AuditInputs): Promise<void> {
   try {
@@ -111,6 +138,7 @@ chatAuditRouter.post(
         {
           messages: [new HumanMessage(inputs.userInput)],
           documentText: inputs.documentText,
+          guardrailBlocked: false,
         },
         { configurable: { thread_id: inputs.namespacedThreadId } },
       );
@@ -177,6 +205,7 @@ chatAuditRouter.post(
         {
           messages: [new HumanMessage(inputs.userInput)],
           documentText: inputs.documentText,
+          guardrailBlocked: false,
         },
         {
           configurable: { thread_id: inputs.namespacedThreadId },

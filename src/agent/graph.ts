@@ -3,9 +3,11 @@ import { ToolNode } from '@langchain/langgraph/prebuilt';
 import { AgentStateAnnotation } from './state.js';
 import {
   greetingReplyNode,
+  guardrailNode,
   harvestWebSourcesNode,
   retrieveShariaRules,
   routeAfterAudit,
+  routeAfterGuardrail,
   routeOnEntry,
   shariaAuditNode,
 } from './nodes.js';
@@ -17,13 +19,18 @@ export function buildWorkflow() {
 
   return new StateGraph(AgentStateAnnotation)
     .addNode('greetingReply', greetingReplyNode)
+    .addNode('guardrail', guardrailNode)
     .addNode('retrieve', retrieveShariaRules)
     .addNode('audit', shariaAuditNode)
     .addNode('tools', toolsNode)
     .addNode('harvestWebSources', harvestWebSourcesNode)
     .addConditionalEdges(START, routeOnEntry, {
       greeting: 'greetingReply',
-      audit: 'retrieve',
+      audit: 'guardrail',
+    })
+    .addConditionalEdges('guardrail', routeAfterGuardrail, {
+      retrieve: 'retrieve',
+      end: END,
     })
     .addEdge('retrieve', 'audit')
     .addConditionalEdges('audit', routeAfterAudit, {

@@ -3,6 +3,9 @@ import { z } from 'zod';
 const envSchema = z.object({
   GROQ_API_KEY: z.string().min(1, 'GROQ_API_KEY is required'),
   GROQ_MODEL: z.string().default('llama-3.3-70b-versatile'),
+  /** Small/fast model for intent guardrail before RAG (Groq). */
+  GROQ_GUARDRAIL_MODEL: z.string().default('llama-3.1-8b-instant'),
+  GROQ_TRANSCRIPTION_MODEL: z.string().default('whisper-large-v3-turbo'),
   PINECONE_API_KEY: z.string().min(1, 'PINECONE_API_KEY is required'),
   MONGO_URI: z.string().min(1, 'MONGO_URI is required'),
   PORT: z.coerce.number().int().positive().default(8000),
