@@ -54,6 +54,14 @@ export type PaginatedResponse<T> = {
   hasMore: boolean;
 };
 
+export type KnowledgeFileItem = {
+  key: string;
+  name: string;
+  size: number;
+  lastModified: string;
+  url: string;
+};
+
 export const api = {
   stats: () => request<Stats>('/admin/stats'),
 
@@ -92,19 +100,44 @@ export const api = {
   unbanUser: (userId: string) =>
     request(`/admin/users/${userId}/unban`, { method: 'POST', body: '{}' }),
 
-  uploadKnowledge: (file: File) => {
-    const fd = new FormData();
-    fd.append('file', file);
-    return fetch(`${BASE}/upload-knowledge`, {
-      method: 'POST',
-      credentials: 'include',
-      body: fd,
-    }).then(async (res) => {
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error((body as { detail?: string }).detail ?? res.statusText);
-      }
-      return res.json();
-    });
+  listKnowledgeFiles: (params?: { cursor?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.cursor) q.set('cursor', params.cursor);
+    const suffix = q.toString() ? `?${q}` : '';
+    return request<PaginatedResponse<KnowledgeFileItem>>(`/admin/knowledge-files${suffix}`);
   },
+
+  uploadKnowledge: (file: File, onProgress?: (loaded: number, total: number) => void) =>
+    new Promise<unknown>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${BASE}/upload-knowledge`);
+      xhr.withCredentials = true;
+      xhr.upload.onprogress = (ev) => {
+        if (ev.lengthComputable && ev.total > 0 && onProgress) {
+          onProgress(ev.loaded, ev.total);
+        }
+      };
+      xhr.onload = () => {
+        const body: unknown = (() => {
+          try {
+            return xhr.responseText ? JSON.parse(xhr.responseText) : {};
+          } catch {
+            return {};
+          }
+        })();
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(body);
+        } else {
+          const detail =
+            typeof body === 'object' && body !== null && 'detail' in body
+              ? String((body as { detail: unknown }).detail)
+              : xhr.statusText;
+          reject(new Error(detail || xhr.statusText));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error'));
+      const fd = new FormData();
+      fd.append('file', file);
+      xhr.send(fd);
+    }),
 };

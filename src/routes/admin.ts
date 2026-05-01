@@ -5,6 +5,7 @@ import { HttpError } from '../middleware/error.js';
 import { getDb } from '../lib/mongo.js';
 import { getPineconeClient } from '../lib/pinecone.js';
 import { env } from '../config/env.js';
+import { listKnowledgeObjects } from '../lib/s3.js';
 
 export const adminRouter: Router = Router();
 
@@ -61,6 +62,20 @@ adminRouter.get('/admin/stats', requireAdmin, async (_req, res, next) => {
       audits: { currentPeriodTotal: totalAudits[0]?.total ?? 0 },
       knowledgeChunks,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.get('/admin/knowledge-files', requireAdmin, async (req, res, next) => {
+  try {
+    const organizationId = req.activeOrgId!;
+    const continuationToken =
+      typeof req.query['cursor'] === 'string' ? req.query['cursor'] : undefined;
+    const { items, nextContinuationToken } = await listKnowledgeObjects(organizationId, {
+      continuationToken,
+    });
+    res.json({ items, nextCursor: nextContinuationToken, hasMore: nextContinuationToken !== null });
   } catch (err) {
     next(err);
   }
