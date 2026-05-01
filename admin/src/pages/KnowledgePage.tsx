@@ -1,8 +1,19 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useRef, useState, type DragEvent } from 'react';
+import { TriangleAlert } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Table,
   TableBody,
@@ -27,6 +38,8 @@ function formatDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
 }
 
+type FilePendingDelete = { key: string; name: string };
+
 export function KnowledgePage() {
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -36,6 +49,7 @@ export function KnowledgePage() {
   const [lastFile, setLastFile] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadIndeterminate, setUploadIndeterminate] = useState(false);
+  const [filePendingDelete, setFilePendingDelete] = useState<FilePendingDelete | null>(null);
 
   const {
     data: files = [],
@@ -49,6 +63,18 @@ export function KnowledgePage() {
     queryFn: async () => {
       const res = await api.listKnowledgeFiles();
       return res.items;
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (key: string) => api.deleteKnowledgeFile(key),
+    onSuccess: () => {
+      toast.success('Source removed.');
+      setFilePendingDelete(null);
+      void queryClient.invalidateQueries({ queryKey: ['knowledge-files'] });
+    },
+    onError: (err: unknown) => {
+      toast.error(err instanceof Error ? err.message : 'Delete failed.');
     },
   });
 
@@ -105,6 +131,43 @@ export function KnowledgePage() {
 
   return (
     <div className="max-w-3xl space-y-6">
+      <AlertDialog
+        open={filePendingDelete != null}
+        onOpenChange={(open) => {
+          if (!open) setFilePendingDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove knowledge source?</AlertDialogTitle>
+          </AlertDialogHeader>
+          <Alert variant="destructive">
+            <TriangleAlert />
+            <AlertTitle>This action cannot be undone</AlertTitle>
+            <AlertDescription>
+              This will delete{' '}
+              <span className="font-medium text-foreground">{filePendingDelete?.name}</span> from
+              storage and remove all indexed chunks for this document from the knowledge base.
+            </AlertDescription>
+          </Alert>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              type="button"
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => {
+                if (filePendingDelete) {
+                  deleteMutation.mutate(filePendingDelete.key);
+                }
+              }}
+            >
+              {deleteMutation.isPending ? 'Removing…' : 'Remove'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <h1 className="text-xl font-semibold">Upload Knowledge</h1>
       <p className="text-sm text-muted-foreground">
         Upload a PDF to ingest into the shared Pinecone knowledge base. Only PDF files are supported.
@@ -233,6 +296,7 @@ export function KnowledgePage() {
                   <TableHead className="text-end">Size</TableHead>
                   <TableHead className="text-end">Uploaded</TableHead>
                   <TableHead className="text-end">Link</TableHead>
+                  <TableHead className="w-[100px] text-end">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -254,6 +318,18 @@ export function KnowledgePage() {
                       ) : (
                         '—'
                       )}
+                    </TableCell>
+                    <TableCell className="text-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        disabled={deleteMutation.isPending}
+                        onClick={() => setFilePendingDelete({ key: f.key, name: f.name })}
+                      >
+                        Remove
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}

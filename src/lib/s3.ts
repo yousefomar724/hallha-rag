@@ -4,6 +4,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   ListObjectsV2Command,
+  DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env } from '../config/env.js';
@@ -127,5 +128,11 @@ export async function getKnowledgeObjectUrl(key: string): Promise<string> {
     getS3Client(),
     new GetObjectCommand({ Bucket: env.AWS_S3_BUCKET_NAME, Key: key }),
     { expiresIn: PRESIGN_EXPIRES_SECONDS },
+  );
+}
+
+export async function deleteKnowledgeObject(key: string): Promise<void> {
+  await getS3Client().send(
+    new DeleteObjectCommand({ Bucket: env.AWS_S3_BUCKET_NAME, Key: key }),
   );
 }

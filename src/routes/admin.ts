@@ -5,7 +5,8 @@ import { HttpError } from '../middleware/error.js';
 import { getDb } from '../lib/mongo.js';
 import { getPineconeClient } from '../lib/pinecone.js';
 import { env } from '../config/env.js';
-import { listKnowledgeObjects } from '../lib/s3.js';
+import { listKnowledgeObjects, deleteKnowledgeObject } from '../lib/s3.js';
+import { deleteKnowledgeVectorsByS3Key } from '../rag/delete-knowledge.js';
 
 export const adminRouter: Router = Router();
 
@@ -62,6 +63,32 @@ adminRouter.get('/admin/stats', requireAdmin, async (_req, res, next) => {
       audits: { currentPeriodTotal: totalAudits[0]?.total ?? 0 },
       knowledgeChunks,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.delete('/admin/knowledge-files', requireAdmin, async (req, res, next) => {
+  try {
+    const raw = (req.body as { key?: unknown })?.key;
+    const key = typeof raw === 'string' ? raw.trim() : '';
+    if (!key) {
+      throw new HttpError(400, 'Missing required field "key".');
+    }
+
+    const organizationId = req.activeOrgId!;
+    const prefix = `knowledge/${organizationId}/`;
+    if (!key.startsWith(prefix) || key.length <= prefix.length) {
+      throw new HttpError(403, 'Invalid knowledge object key for this organization.');
+    }
+    if (key.includes('..')) {
+      throw new HttpError(400, 'Invalid knowledge object key.');
+    }
+
+    await deleteKnowledgeVectorsByS3Key(key);
+    await deleteKnowledgeObject(key);
+
+    res.json({ ok: true });
   } catch (err) {
     next(err);
   }

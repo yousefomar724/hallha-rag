@@ -107,6 +107,12 @@ export const api = {
     return request<PaginatedResponse<KnowledgeFileItem>>(`/admin/knowledge-files${suffix}`);
   },
 
+  deleteKnowledgeFile: (key: string) =>
+    request<{ ok: boolean }>('/admin/knowledge-files', {
+      method: 'DELETE',
+      body: JSON.stringify({ key }),
+    }),
+
   uploadKnowledge: (file: File, onProgress?: (loaded: number, total: number) => void) =>
     new Promise<unknown>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
