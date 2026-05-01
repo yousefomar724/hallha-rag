@@ -23,6 +23,19 @@ function deriveSlug(email: string): string {
 /** Populated immediately after `betterAuth()` returns; hooks run later so this is always set in time. */
 const authHolder: { instance?: unknown } = {};
 
+// Cross-origin SPA (e.g. Vercel app → API on another host) requires third-party cookie rules:
+// SameSite=None + Secure. Localhost dev is same-site across ports, so defaults stay lax-friendly.
+const defaultCookieAttributes: {
+  domain?: string;
+  sameSite?: 'none' | 'lax' | 'strict';
+  secure?: boolean;
+} = {};
+if (env.COOKIE_DOMAIN) defaultCookieAttributes.domain = env.COOKIE_DOMAIN;
+if (env.NODE_ENV === 'production') {
+  defaultCookieAttributes.sameSite = 'none';
+  defaultCookieAttributes.secure = true;
+}
+
 const auth = betterAuth({
   baseURL: env.BETTER_AUTH_URL,
   secret: env.BETTER_AUTH_SECRET,
@@ -35,7 +48,7 @@ const auth = betterAuth({
   },
   advanced: {
     cookiePrefix: 'hallha',
-    ...(env.COOKIE_DOMAIN ? { defaultCookieAttributes: { domain: env.COOKIE_DOMAIN } } : {}),
+    ...(Object.keys(defaultCookieAttributes).length > 0 ? { defaultCookieAttributes } : {}),
   },
   plugins: [
     admin({
