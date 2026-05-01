@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { Document } from '@langchain/core/documents';
-import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { getEmbeddings } from '../lib/embeddings.js';
 import { getPineconeClient } from '../lib/pinecone.js';
-import { extractPdfText } from '../utils/pdf.js';
+import { extractPdfMarkdown } from '../utils/pdf-to-markdown.js';
+import { splitMarkdownByHeadings } from '../utils/markdown-header-splitter.js';
 import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
 
@@ -29,31 +28,28 @@ export async function ingestPdfToPinecone(input: IngestInput): Promise<string> {
     throw new IngestError('Uploaded file is empty.');
   }
 
-  let pages: string[];
+  const source = originalName;
+
+  let markdown: string;
+  let pageCount: number;
   try {
-    const extracted = await extractPdfText(new Uint8Array(buffer));
-    pages = extracted.pages;
-  } catch {
+    const extracted = await extractPdfMarkdown(new Uint8Array(buffer));
+    markdown = extracted.markdown;
+    pageCount = extracted.pageCount;
+  } catch (err) {
+    if (err instanceof IngestError) throw err;
     throw new IngestError(
       'Could not read PDF. The file may be corrupted, truncated, or not a real PDF — ' +
         'try re-exporting it or uploading again.',
     );
   }
 
-  const source = originalName;
-  const docs = pages.map(
-    (pageContent, i) =>
-      new Document({
-        pageContent,
-        metadata: { source, page: i + 1, s3Key, s3Url, organizationId },
-      }),
-  );
-
-  const splitter = new RecursiveCharacterTextSplitter({
-    chunkSize: 1800,
-    chunkOverlap: 150,
+  const chunks = await splitMarkdownByHeadings(markdown, {
+    source,
+    s3Key,
+    s3Url,
+    organizationId,
   });
-  const chunks = await splitter.splitDocuments(docs);
 
   const usable = chunks.filter((c) => c.pageContent.trim().length > 0);
   if (usable.length === 0) {
@@ -70,7 +66,7 @@ export async function ingestPdfToPinecone(input: IngestInput): Promise<string> {
   const namespace = pineconeIndex.namespace('');
 
   logger.info(
-    { source, pageCount: pages.length, chunkCount: usable.length, s3Key },
+    { source, pageCount, chunkCount: usable.length, s3Key },
     'Ingesting PDF chunks',
   );
 
@@ -96,6 +92,7 @@ export async function ingestPdfToPinecone(input: IngestInput): Promise<string> {
         s3Key?: string;
         s3Url?: string;
         organizationId?: string;
+        headings?: string;
       };
       return {
         id: randomUUID(),
@@ -106,6 +103,7 @@ export async function ingestPdfToPinecone(input: IngestInput): Promise<string> {
           s3Key: meta.s3Key ?? s3Key,
           s3Url: meta.s3Url ?? s3Url,
           organizationId: meta.organizationId ?? organizationId,
+          headings: meta.headings ?? '',
           [textKey]: doc.pageContent,
         },
       };

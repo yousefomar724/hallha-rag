@@ -3,11 +3,17 @@ export type RetrievedSource = {
   source: string;
   page: number;
   url?: string;
+  headings?: string;
 };
 
 function formatSourcesHint(sources: RetrievedSource[]): string {
   if (sources.length === 0) return 'No sources retrieved.';
-  return sources.map((s) => `[${s.id}] ${s.source}, p. ${s.page}`).join('\n');
+  return sources
+    .map((s) => {
+      const label = s.headings ? `${s.source} — ${s.headings}, p. ${s.page}` : `${s.source}, p. ${s.page}`;
+      return `[${s.id}] ${label}`;
+    })
+    .join('\n');
 }
 
 export function buildHalimSystemPrompt(args: {

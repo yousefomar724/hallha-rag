@@ -44,7 +44,7 @@ Express 5 + TypeScript port of a Python/FastAPI Sharia-compliance auditor. Two e
 
 ### Request flow for `/upload-knowledge`
 
-`diskUpload` writes the PDF to `./uploads/<originalname>` → `rag/ingest.ts::ingestPdfToPinecone` extracts pages with `unpdf`, splits with `RecursiveCharacterTextSplitter` (chunkSize 1800, overlap 150), and upserts embeddings to Pinecone.
+`diskUpload` writes the PDF to `./uploads/<originalname>` → `rag/ingest.ts::ingestPdfToPinecone` converts the PDF to Markdown via `@opendocsg/pdf2md` (font-size heuristics → `#`/`##`/`###`), then splits on heading boundaries with `splitMarkdownByHeadings` (`utils/markdown-header-splitter.ts`). Sections that exceed 1800 chars fall back to `RecursiveCharacterTextSplitter` (1800/150). Each chunk carries a `headings` metadata field (e.g. `"Chapter II > Article 5 — Riba"`) for richer citations. Embeddings are upserted to Pinecone as before.
 
 ### Singletons / lifecycle
 
@@ -57,7 +57,7 @@ Express 5 + TypeScript port of a Python/FastAPI Sharia-compliance auditor. Two e
 ## Cross-runtime parity (important)
 
 - The Pinecone index is shared with the Python service. The custom `HuggingFaceTransformersEmbeddings` (`lib/embeddings.ts`) wraps `@huggingface/transformers` `Xenova/all-MiniLM-L6-v2` with mean-pooling + L2 normalize to match Python `sentence-transformers/all-MiniLM-L6-v2` (384-dim). **Do not change the model, pooling, or normalization** — vectors must stay numerically compatible with existing index data.
-- Index name (`hallha`), chunk size/overlap (1800/150), retriever k (4), and the audit system prompt intentionally mirror the Python service. The Python stack uses Gemini; this Node stack uses Groq-hosted models (`GROQ_MODEL`) instead — behavior may differ slightly.
+- **Node uses heading-aware chunking** via `@opendocsg/pdf2md` + a custom Markdown header splitter; the Python service still uses size-based 1800/150 splitting. Vector-level compatibility is preserved (same 384-dim embedder, same index), but the *shape* of retrieved chunks differs across runtimes — chunks ingested by Node carry a `headings` metadata field that Python-ingested chunks do not. Retriever k (4) and the audit system prompt still mirror the Python service. The Python stack uses Gemini; this Node stack uses Groq-hosted models (`GROQ_MODEL`) instead — behavior may differ slightly.
 - **LangGraph Mongo checkpoints are NOT interchangeable between Python and JS.** The Python runtime stores checkpoints with `msgpack` serialization; this Node app uses LangGraph JS (`json`). If sharing a Mongo cluster with Python, give this service **distinct** checkpoint and checkpoint-writes collections (defaults `checkpoints_langgraph_js` and `checkpoint_writes_langgraph_js`).
 
 ## Configuration

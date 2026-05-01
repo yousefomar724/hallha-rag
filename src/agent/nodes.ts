@@ -72,6 +72,7 @@ export async function retrieveShariaRules(state: AgentState): Promise<AgentState
       source?: unknown;
       page?: unknown;
       s3Url?: unknown;
+      headings?: unknown;
     };
     const rawSource =
       typeof meta.source === 'string' && meta.source ? meta.source : 'unknown';
@@ -79,13 +80,18 @@ export async function retrieveShariaRules(state: AgentState): Promise<AgentState
     const pageNum = Number(meta.page);
     const page = Number.isFinite(pageNum) ? pageNum : 0;
     const url = typeof meta.s3Url === 'string' && meta.s3Url ? meta.s3Url : undefined;
-    return { id: i + 1, source, page, ...(url ? { url } : {}) };
+    const headings =
+      typeof meta.headings === 'string' && meta.headings ? meta.headings : undefined;
+    return { id: i + 1, source, page, ...(url ? { url } : {}), ...(headings ? { headings } : {}) };
   });
 
   const context = docs
     .map((d, i) => {
       const s = sources[i]!;
-      return `[${s.id}] ${s.source}, p. ${s.page}\n${d.pageContent}`;
+      const label = s.headings
+        ? `${s.source} — ${s.headings}, p. ${s.page}`
+        : `${s.source}, p. ${s.page}`;
+      return `[${s.id}] ${label}\n${d.pageContent}`;
     })
     .join('\n\n');
 
