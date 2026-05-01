@@ -187,6 +187,11 @@ chatAuditRouter.post(
       for await (const evt of stream) {
         if (aborted) break;
         if (evt.event === 'on_chat_model_stream') {
+          const meta = (evt as { metadata?: Record<string, unknown> }).metadata;
+          const node = meta?.langgraph_node;
+          if (typeof node === 'string' && node !== 'audit') {
+            continue;
+          }
           const chunk = (evt.data as { chunk?: { content?: unknown } } | undefined)?.chunk;
           const text = asString(chunk?.content);
           if (text.length > 0) writeSse(res, 'token', { text });

@@ -70,8 +70,15 @@ chatsRouter.get('/chats/:thread_id', requireAuth, async (req, res, next) => {
     const rawMessages = values?.messages ?? [];
 
     const messages: ApiMessage[] = rawMessages
-      .map((m) => ({ role: mapRole(m), content: messageContentToText(m.content) }))
-      .filter((m) => m.role !== 'system');
+      .map((m) => {
+        const role = mapRole(m);
+        let content = messageContentToText(m.content);
+        if (role === 'assistant') content = content.trim();
+        return { role, content };
+      })
+      .filter((m) => m.role !== 'system')
+      .filter((m) => m.role !== 'tool')
+      .filter((m) => !(m.role === 'assistant' && m.content.length === 0));
 
     const sources = Array.isArray(values?.sources) ? values.sources : [];
 
