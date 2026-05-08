@@ -9,13 +9,17 @@ export type RetrievedSource = {
   page: number;
   url?: string;
   headings?: string;
+  /** AAOIFI FAS/SS/GS or parsed Article/Section label from chunk metadata */
+  standardNumber?: string;
 };
 
 /** Inline label for RETRIEVED KNOWLEDGE blocks and AVAILABLE SOURCES hint */
 export function formatSourceCitationLabel(s: RetrievedSource): string {
   const base = s.displayName?.trim()?.length ? s.displayName : s.source;
   if (s.type === 'web') return base;
-  return s.headings ? `${base} — ${s.headings}, p. ${s.page}` : `${base}, p. ${s.page}`;
+  const core = s.headings ? `${base} — ${s.headings}, p. ${s.page}` : `${base}, p. ${s.page}`;
+  const std = s.standardNumber?.trim();
+  return std ? `${std} — ${core}` : core;
 }
 
 function formatSourcesHint(sources: RetrievedSource[]): string {
@@ -31,10 +35,15 @@ export function buildHalimSystemPrompt(args: {
   context: string;
   documentText: string;
   sources: RetrievedSource[];
+  contextSummary?: string;
 }): string {
-  const { context, documentText, sources } = args;
+  const { context, documentText, sources, contextSummary } = args;
   const documentBlock = documentText.trim() ? documentText : 'No document uploaded.';
   const knowledgeBlock = context.trim() ? context : 'No reference knowledge retrieved.';
+  const orgContextBlock =
+    contextSummary?.trim() && contextSummary.trim().length > 0
+      ? contextSummary.trim()
+      : 'No organization onboarding context was provided.';
   const sourcesHint = formatSourcesHint(sources);
 
   return `You are Halim (حليم), a Sharia compliance assistant built for Muslim founders, startups, and small-to-medium businesses operating in Islamic finance and fintech.
@@ -50,8 +59,14 @@ LANGUAGE
 
 WHEN A DOCUMENT IS UPLOADED — produce a Sharia audit with this exact structure:
 1. **Executive Summary** — 2-3 sentences: overall compliance posture and the single most material issue.
-2. **Identified Compliance Risks** — bulleted list. For each: the specific clause/section, the risk category (Riba, Gharar, Maysir, prohibited industry, ownership transfer, late-payment penalties, etc.), and severity (High / Medium / Low).
+2. **Identified Compliance Risks** — For EACH identified issue you MUST use exactly this sub-structure (not a loose bullet):
+   - **Quoted clause** — Quote verbatim the exact flawed clause from the user's uploaded document (short passage in quotation marks, or clearly marked as a verbatim quote).
+   - **Violation** — Name the Sharia issue (Riba, Gharar, Maysir, prohibited industry, etc.) and state severity (High / Medium / Low).
+   - **Authority** — Quote verbatim the relevant excerpt from the RETRIEVED KNOWLEDGE (AAOIFI / regulator text). Prefix with the standard identifier and page using ONLY the **standard_number** value shown for the DOCUMENT source you cite with an inline marker (e.g. [1]). Format: \`FAS 4, p. 12: "…verbatim excerpt from RETRIEVED KNOWLEDGE…"\`. If the matching DOCUMENT source has no standard_number in AVAILABLE SOURCES, use "Unknown standard" and quote the authority text only — do not invent a standard number.
 3. **Mitigations & Suggested Amendments** — for each risk above, a concrete drafting-level suggestion the user could send to their lawyer.
+
+BUSINESS / ORGANIZATION CONTEXT (for tone and sector awareness only — not a substitute for retrieved standards):
+${orgContextBlock}
 
 WHEN NO DOCUMENT IS UPLOADED — answer the user's question grounded in RETRIEVED KNOWLEDGE, with the same citation discipline.
 
