@@ -3,6 +3,7 @@ import { getEmbeddings } from '../lib/embeddings.js';
 import { getPineconeClient } from '../lib/pinecone.js';
 import { extractPdfMarkdown } from '../utils/pdf-to-markdown.js';
 import { splitMarkdownByHeadings } from '../utils/markdown-header-splitter.js';
+import { extractStandardNumber } from '../utils/standard-number.js';
 import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
 
@@ -93,17 +94,25 @@ export async function ingestPdfToPinecone(input: IngestInput): Promise<string> {
         s3Url?: string;
         organizationId?: string;
         headings?: string;
+        standard_number?: string;
       };
+      const headingsStr = meta.headings ?? '';
+      const sourceStr = meta.source ?? source;
+      const stdRaw =
+        typeof meta.standard_number === 'string' && meta.standard_number.trim()
+          ? meta.standard_number.trim()
+          : extractStandardNumber(headingsStr, sourceStr);
       return {
         id: randomUUID(),
         values,
         metadata: {
-          source: meta.source ?? source,
+          source: sourceStr,
           page: meta.page ?? 0,
           s3Key: meta.s3Key ?? s3Key,
           s3Url: meta.s3Url ?? s3Url,
           organizationId: meta.organizationId ?? organizationId,
-          headings: meta.headings ?? '',
+          headings: headingsStr,
+          standard_number: stdRaw ?? '',
           [textKey]: doc.pageContent,
         },
       };

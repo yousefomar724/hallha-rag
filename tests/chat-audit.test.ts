@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import { AIMessage } from '@langchain/core/messages';
 import {
@@ -6,18 +6,31 @@ import {
   getPrimaryOrgIdForUser,
   TEST_AUTH_ORIGIN,
 } from './test-helpers/auth-flow.js';
+import * as chatHistory from '../src/lib/chat-history.js';
 
-const invokeMock = vi.fn();
+const { invokeMock, getCompiledGraphMock, getEphemeralGraphMock } = vi.hoisted(() => {
+  const invoke = vi.fn();
+  return {
+    invokeMock: invoke,
+    getCompiledGraphMock: vi.fn(async () => ({ invoke })),
+    getEphemeralGraphMock: vi.fn(() => ({ invoke })),
+  };
+});
 
 vi.mock('../src/agent/graph.js', () => ({
-  getCompiledGraph: vi.fn(async () => ({
-    invoke: invokeMock,
-  })),
+  getCompiledGraph: getCompiledGraphMock,
+  getEphemeralGraph: getEphemeralGraphMock,
 }));
 
 const { createApp } = await import('../src/app.js');
 
 describe('POST /chat-audit', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    getCompiledGraphMock.mockClear();
+    getEphemeralGraphMock.mockClear();
+  });
+
   it('rejects missing thread_id with 422', async () => {
     const app = createApp();
     const { cookieHeader } = await createUserWithSessionCookie(app);
@@ -50,6 +63,9 @@ describe('POST /chat-audit', () => {
     expect(res.body.thread_id).toBe('thread-123');
     expect(res.body.response).toBe('This contract contains Riba.');
     expect(res.body.sources).toEqual([]);
+    expect(res.body.citations).toEqual([]);
+    expect(getCompiledGraphMock).toHaveBeenCalled();
+    expect(getEphemeralGraphMock).not.toHaveBeenCalled();
     expect(invokeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         documentText: '',
@@ -62,13 +78,14 @@ describe('POST /chat-audit', () => {
     );
   });
 
-  it('returns structured sources alongside the response', async () => {
+  it('returns structured sources and matching citations', async () => {
     const mockSources = [
       {
         id: 1,
         type: 'document' as const,
         source: 'aaoifi.pdf',
         displayName: 'AAOIFI Standards',
+        standardNumber: 'FAS 4',
         page: 12,
         url: 'https://cdn/example/aaoifi.pdf',
       },
@@ -97,6 +114,45 @@ describe('POST /chat-audit', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.sources).toEqual(mockSources);
+    expect(res.body.citations).toEqual(mockSources);
+    expect(res.body.response).toContain('Riba');
+  });
+
+  it('confidential requests use ephemeral graph and skip thread upsert', async () => {
+    const upsertSpy = vi.spyOn(chatHistory, 'upsertThreadActivity');
+    invokeMock.mockResolvedValueOnce({
+      messages: [new AIMessage('Confidential audit.')],
+      sources: [],
+    });
+
+    const app = createApp();
+    const { cookieHeader, userId } = await createUserWithSessionCookie(app);
+    const orgId = await getPrimaryOrgIdForUser(userId);
+
+    const res = await request(app)
+      .post('/chat-audit')
+      .set('Cookie', cookieHeader)
+      .set('Origin', TEST_AUTH_ORIGIN)
+      .field('thread_id', 'thread-secret')
+      .field('message', 'Audit this please')
+      .field('isConfidential', 'true');
+
+    expect(res.status).toBe(200);
+    expect(res.body.confidential).toBe(true);
+    expect(getEphemeralGraphMock).toHaveBeenCalled();
+    expect(getCompiledGraphMock).not.toHaveBeenCalled();
+    expect(upsertSpy).not.toHaveBeenCalled();
+    expect(invokeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentText: '',
+        guardrailBlocked: false,
+        contextSummary: '',
+      }),
+      expect.objectContaining({
+        configurable: { thread_id: `${orgId}:thread-secret` },
+      }),
+    );
+    upsertSpy.mockRestore();
   });
 
   it('treats non-PDF uploads as UTF-8 text', async () => {

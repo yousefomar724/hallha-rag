@@ -44,12 +44,22 @@ export function buildWorkflow() {
 
 let compiled: ReturnType<ReturnType<typeof buildWorkflow>['compile']> | null = null;
 
+let compiledEphemeral: ReturnType<ReturnType<typeof buildWorkflow>['compile']> | null = null;
+
 export async function getCompiledGraph() {
   if (!compiled) {
     const checkpointer = await getCheckpointer();
     compiled = buildWorkflow().compile({ checkpointer });
   }
   return compiled;
+}
+
+/** Same workflow without MongoDB checkpointing — for confidential one-shot audits (no retained thread state). */
+export function getEphemeralGraph() {
+  if (!compiledEphemeral) {
+    compiledEphemeral = buildWorkflow().compile();
+  }
+  return compiledEphemeral;
 }
 
 export type ShariaGraph = Awaited<ReturnType<typeof getCompiledGraph>>;

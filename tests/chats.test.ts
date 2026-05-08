@@ -20,6 +20,11 @@ vi.mock('../src/agent/graph.js', () => ({
     getState: getStateMock,
     streamEvents: streamEventsMock,
   })),
+  getEphemeralGraph: vi.fn(() => ({
+    invoke: invokeMock,
+    getState: getStateMock,
+    streamEvents: streamEventsMock,
+  })),
 }));
 
 const { createApp } = await import('../src/app.js');
@@ -152,6 +157,7 @@ describe('Chat history endpoints', () => {
     expect(res.text).toContain('"text":"Hello "');
     expect(res.text).toContain('"text":"world"');
     expect(res.text).toContain('event: sources');
+    expect(res.text).toContain('event: citations');
     expect(res.text).toContain('event: done');
   });
 

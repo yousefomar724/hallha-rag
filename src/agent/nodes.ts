@@ -7,6 +7,7 @@ import {
   formatSourceCitationLabel,
   type RetrievedSource,
 } from './prompt.js';
+import { extractStandardNumber } from '../utils/standard-number.js';
 import { guardrailRefusalMessageForUserText } from './audit-defaults.js';
 import { detectGreeting, greetingReplyFor } from './greeting.js';
 import { classifyRelatedToAudit, shouldSkipGuardrailLlm } from './guardrail.js';
@@ -136,6 +137,7 @@ export async function retrieveShariaRules(state: AgentState): Promise<AgentState
       s3Url?: unknown;
       headings?: unknown;
       s3Key?: unknown;
+      standard_number?: unknown;
     };
     const rawSource =
       typeof meta.source === 'string' && meta.source ? meta.source : 'unknown';
@@ -145,6 +147,14 @@ export async function retrieveShariaRules(state: AgentState): Promise<AgentState
     const url = typeof meta.s3Url === 'string' && meta.s3Url ? meta.s3Url : undefined;
     const headings =
       typeof meta.headings === 'string' && meta.headings ? meta.headings : undefined;
+    const stdFromMeta =
+      typeof meta.standard_number === 'string' && meta.standard_number.trim()
+        ? meta.standard_number.trim()
+        : undefined;
+    const standardNumber =
+      stdFromMeta ??
+      extractStandardNumber(headings ?? '', rawSource) ??
+      undefined;
     const s3Key =
       typeof meta.s3Key === 'string' && meta.s3Key.length > 0 ? meta.s3Key : undefined;
     const displayName =
@@ -159,6 +169,7 @@ export async function retrieveShariaRules(state: AgentState): Promise<AgentState
       page,
       ...(url ? { url } : {}),
       ...(headings ? { headings } : {}),
+      ...(standardNumber ? { standardNumber } : {}),
     };
   });
 

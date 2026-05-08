@@ -7,8 +7,10 @@ import { getCompiledGraph } from '../agent/graph.js';
 import {
   deleteThreadAndCheckpoints,
   findThreadOwned,
+  getLatestAssistantMessageContent,
   listThreadsForUser,
   namespaceThreadId,
+  purgeThreadWithOptions,
 } from '../lib/chat-history.js';
 import type { RetrievedSource } from '../agent/prompt.js';
 
@@ -38,6 +40,12 @@ function mapRole(msg: BaseMessage): ApiMessage['role'] {
   if (t === 'ai') return 'assistant';
   if (t === 'tool') return 'tool';
   return 'system';
+}
+
+function parseKeepSummaryFlag(raw: unknown): boolean {
+  if (typeof raw !== 'string') return false;
+  const s = raw.trim().toLowerCase();
+  return s === 'true' || s === '1' || s === 'yes';
 }
 
 chatsRouter.get('/chats', requireAuth, async (req, res, next) => {
@@ -89,6 +97,52 @@ chatsRouter.get('/chats/:thread_id', requireAuth, async (req, res, next) => {
       lastMessageAt: thread.lastMessageAt.toISOString(),
       messages,
       sources,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+chatsRouter.delete('/chats/:thread_id/purge', requireAuth, async (req, res, next) => {
+  try {
+    const orgId = req.activeOrgId!;
+    const userId = req.user!.id;
+    const userThreadId = String(req.params.thread_id ?? '').trim();
+    if (!userThreadId) throw new HttpError(422, 'thread_id is required.');
+
+    const thread = await findThreadOwned({ organizationId: orgId, userId, userThreadId });
+    if (!thread) throw new HttpError(404, 'Chat not found.');
+
+    const namespaced = namespaceThreadId(orgId, userThreadId);
+    const keepSummary = parseKeepSummaryFlag(req.query.keepSummary);
+
+    let summaryText: string | null = null;
+    if (keepSummary) {
+      const graph = await getCompiledGraph();
+      const state = await graph.getState({ configurable: { thread_id: namespaced } });
+      const values = state?.values as { messages?: BaseMessage[] } | undefined;
+      summaryText = getLatestAssistantMessageContent(values ?? {});
+    }
+
+    const db = await getDb();
+    const result = await purgeThreadWithOptions({
+      db,
+      organizationId: orgId,
+      userId,
+      userThreadId,
+      keepSummary,
+      summaryText,
+    });
+
+    if (!result.ok) throw new HttpError(404, 'Chat not found.');
+
+    res.json({
+      status: 'purged',
+      keepSummary,
+      threadDeleted: result.threadDeleted,
+      summarySaved: result.summarySaved,
+      checkpointsDeleted: result.checkpointsDeleted,
+      writesDeleted: result.writesDeleted,
     });
   } catch (err) {
     next(err);

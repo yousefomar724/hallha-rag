@@ -1,5 +1,6 @@
 import { Document } from '@langchain/core/documents';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
+import { extractStandardNumber } from './standard-number.js';
 
 type SplitOptions = {
   source: string;
@@ -84,10 +85,14 @@ export async function splitMarkdownByHeadings(
   });
 
   for (const section of rawSections) {
+    const headings = section.headings;
+    const standard_number =
+      extractStandardNumber(headings, opts.source) ?? '';
     const meta = {
       ...baseMeta,
       page: section.page,
-      headings: section.headings,
+      headings,
+      ...(standard_number ? { standard_number } : {}),
     };
 
     if (section.text.length <= maxChars) {

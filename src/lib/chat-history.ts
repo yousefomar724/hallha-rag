@@ -1,5 +1,6 @@
 import type { Db, Document } from 'mongodb';
 import { ObjectId } from 'mongodb';
+import { AIMessage, type BaseMessage } from '@langchain/core/messages';
 import { getDb } from './mongo.js';
 import { env } from '../config/env.js';
 import { logger } from './logger.js';
@@ -17,10 +18,127 @@ export type ChatThreadDoc = {
   title: string;
   lastMessageAt: Date;
   createdAt: Date;
+  /** Optional audit snapshot after DELETE /chats/:id/purge?keepSummary=true */
+  summary?: string;
+  summaryCreatedAt?: Date;
 };
 
 export function namespaceThreadId(orgId: string, userThreadId: string): string {
   return `${orgId}:${userThreadId}`;
+}
+
+function assistantMessageContentToText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (part && typeof part === 'object' && 'text' in part) {
+          return String((part as { text: unknown }).text ?? '');
+        }
+        return '';
+      })
+      .join('');
+  }
+  return '';
+}
+
+/** Latest assistant turn from a persisted LangGraph checkpoint, for purge/summary snapshots. */
+export function getLatestAssistantMessageContent(values: {
+  messages?: BaseMessage[];
+}): string | null {
+  const messages = values?.messages;
+  if (!messages?.length) return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!;
+    if (AIMessage.isInstance(m)) {
+      const t = assistantMessageContentToText(m.content).trim();
+      return t.length > 0 ? t : null;
+    }
+  }
+  return null;
+}
+
+export async function deleteCheckpointsForThread(
+  db: Db,
+  threadId: string,
+): Promise<{ checkpointsDeleted: number; writesDeleted: number }> {
+  const cpFilter: Document = { thread_id: threadId };
+  const [cps, writes] = await Promise.all([
+    db.collection(env.MONGO_CHECKPOINT_COLLECTION).deleteMany(cpFilter),
+    db.collection(env.MONGO_CHECKPOINT_WRITES_COLLECTION).deleteMany(cpFilter),
+  ]);
+  return {
+    checkpointsDeleted: cps.deletedCount ?? 0,
+    writesDeleted: writes.deletedCount ?? 0,
+  };
+}
+
+export async function purgeThreadWithOptions(opts: {
+  db: Db;
+  organizationId: string;
+  userId: string;
+  userThreadId: string;
+  keepSummary: boolean;
+  summaryText: string | null;
+}): Promise<
+  | { ok: false; reason: 'not_found' }
+  | {
+      ok: true;
+      checkpointsDeleted: number;
+      writesDeleted: number;
+      threadDeleted: boolean;
+      summarySaved: boolean;
+    }
+> {
+  const { db, organizationId, userId, userThreadId, keepSummary, summaryText } = opts;
+  const namespaced = namespaceThreadId(organizationId, userThreadId);
+
+  const owned = await db.collection<ChatThreadDoc>(CHAT_THREAD_COLLECTION).findOne({
+    threadId: namespaced,
+    organizationId,
+    userId,
+  });
+  if (!owned) {
+    return { ok: false, reason: 'not_found' };
+  }
+
+  if (!keepSummary) {
+    const r = await deleteThreadAndCheckpoints({
+      db,
+      threadId: namespaced,
+      organizationId,
+      userId,
+    });
+    if (!r.threadDeleted) return { ok: false, reason: 'not_found' };
+    return {
+      ok: true,
+      checkpointsDeleted: r.checkpointsDeleted,
+      writesDeleted: r.writesDeleted,
+      threadDeleted: true,
+      summarySaved: false,
+    };
+  }
+
+  const now = new Date();
+  await db.collection(CHAT_THREAD_COLLECTION).updateOne(
+    { threadId: namespaced, organizationId, userId },
+    {
+      $set: {
+        summary: summaryText ?? '',
+        summaryCreatedAt: now,
+        lastMessageAt: now,
+      },
+    },
+  );
+  const { checkpointsDeleted, writesDeleted } = await deleteCheckpointsForThread(db, namespaced);
+  return {
+    ok: true,
+    checkpointsDeleted,
+    writesDeleted,
+    threadDeleted: false,
+    summarySaved: true,
+  };
 }
 
 export function deriveThreadTitle(input: string | undefined | null): string {
@@ -129,15 +247,11 @@ export async function deleteThreadAndCheckpoints(opts: {
   if (threadResult.deletedCount === 0) {
     return { threadDeleted: false, checkpointsDeleted: 0, writesDeleted: 0 };
   }
-  const cpFilter: Document = { thread_id: threadId };
-  const [cps, writes] = await Promise.all([
-    db.collection(env.MONGO_CHECKPOINT_COLLECTION).deleteMany(cpFilter),
-    db.collection(env.MONGO_CHECKPOINT_WRITES_COLLECTION).deleteMany(cpFilter),
-  ]);
+  const del = await deleteCheckpointsForThread(db, threadId);
   return {
     threadDeleted: true,
-    checkpointsDeleted: cps.deletedCount ?? 0,
-    writesDeleted: writes.deletedCount ?? 0,
+    checkpointsDeleted: del.checkpointsDeleted,
+    writesDeleted: del.writesDeleted,
   };
 }
 

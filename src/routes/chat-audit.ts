@@ -12,7 +12,8 @@ import {
 } from '../middleware/rate-limit.js';
 import { HttpError } from '../middleware/error.js';
 import { extractPdfText } from '../utils/pdf.js';
-import { getCompiledGraph } from '../agent/graph.js';
+import { getCompiledGraph, getEphemeralGraph } from '../agent/graph.js';
+import type { RetrievedSource } from '../agent/prompt.js';
 import { getPlan, UNLIMITED } from '../lib/plans.js';
 import { namespaceThreadId, upsertThreadActivity } from '../lib/chat-history.js';
 import { logger } from '../lib/logger.js';
@@ -29,6 +30,8 @@ type AuditInputs = {
   documentText: string;
   rawUserMessage: string | undefined;
   contextSummary: string;
+  /** When true, skip Mongo checkpointing and chat_thread writes (one-shot confidential run). */
+  isConfidential: boolean;
 };
 
 async function loadOrgContextSummary(orgId: string): Promise<string> {
@@ -54,6 +57,22 @@ function asString(content: unknown): string {
       .join('');
   }
   return '';
+}
+
+function parseMultipartBool(raw: unknown): boolean {
+  if (raw === true || raw === 1) return true;
+  if (typeof raw === 'string') {
+    const s = raw.trim().toLowerCase();
+    return s === 'true' || s === '1' || s === 'yes';
+  }
+  return false;
+}
+
+function sourcesFromNodeOutput(output: unknown): RetrievedSource[] | undefined {
+  if (!output || typeof output !== 'object') return undefined;
+  const src = (output as { sources?: unknown }).sources;
+  if (!Array.isArray(src)) return undefined;
+  return src as RetrievedSource[];
 }
 
 async function prepareAuditInputs(req: Request, res: Response): Promise<AuditInputs> {
@@ -90,6 +109,7 @@ async function prepareAuditInputs(req: Request, res: Response): Promise<AuditInp
   }
 
   const userInput = message ?? DEFAULT_AUDIT_USER_MESSAGE;
+  const isConfidential = parseMultipartBool(req.body?.isConfidential);
   return {
     userThreadId: threadId,
     namespacedThreadId: namespaceThreadId(req.activeOrgId!, threadId),
@@ -97,6 +117,7 @@ async function prepareAuditInputs(req: Request, res: Response): Promise<AuditInp
     documentText,
     rawUserMessage: message,
     contextSummary,
+    isConfidential,
   };
 }
 
@@ -148,7 +169,7 @@ chatAuditRouter.post(
     try {
       const inputs = await prepareAuditInputs(req, res);
 
-      const graph = await getCompiledGraph();
+      const graph = inputs.isConfidential ? getEphemeralGraph() : await getCompiledGraph();
       const result = await graph.invoke(
         {
           messages: [new HumanMessage(inputs.userInput)],
@@ -163,12 +184,16 @@ chatAuditRouter.post(
       const aiResponse = lastMessage ? asString(lastMessage.content) : '';
       const sources = Array.isArray(result.sources) ? result.sources : [];
 
-      await recordThreadActivity(req, inputs);
+      if (!inputs.isConfidential) {
+        await recordThreadActivity(req, inputs);
+      }
 
       res.json({
         response: aiResponse,
         thread_id: inputs.userThreadId,
         sources,
+        citations: sources,
+        ...(inputs.isConfidential ? { confidential: true } : {}),
       });
     } catch (err) {
       next(err);
@@ -214,8 +239,11 @@ chatAuditRouter.post(
     });
 
     try {
-      const graph = await getCompiledGraph();
-      writeSse(res, 'meta', { thread_id: inputs.userThreadId });
+      const graph = inputs.isConfidential ? getEphemeralGraph() : await getCompiledGraph();
+      writeSse(res, 'meta', {
+        thread_id: inputs.userThreadId,
+        ...(inputs.isConfidential ? { confidential: true } : {}),
+      });
 
       const stream = graph.streamEvents(
         {
@@ -230,32 +258,53 @@ chatAuditRouter.post(
         },
       );
 
+      let lastSourcesFromEvents: RetrievedSource[] = [];
+
       for await (const evt of stream) {
         if (aborted) break;
-        if (evt.event === 'on_chat_model_stream') {
-          const chunk = (evt.data as { chunk?: { content?: unknown } } | undefined)?.chunk;
-          const text = asString(chunk?.content);
-          if (text.length > 0) writeSse(res, 'token', { text });
+        if (evt && typeof evt === 'object' && 'event' in evt) {
+          const eventName = (evt as { event: string }).event;
+          if (eventName === 'on_chain_end') {
+            const data = (evt as { data?: { output?: unknown } }).data;
+            const next = sourcesFromNodeOutput(data?.output);
+            if (next) lastSourcesFromEvents = next;
+          }
+          if (eventName === 'on_chat_model_stream') {
+            const chunk = (evt as { data?: { chunk?: { content?: unknown } } }).data?.chunk;
+            const text = asString(chunk?.content);
+            if (text.length > 0) writeSse(res, 'token', { text });
+          }
         }
       }
 
       if (!aborted) {
-        try {
-          const finalState = await graph.getState({
-            configurable: { thread_id: inputs.namespacedThreadId },
-          });
-          const sources = Array.isArray(finalState?.values?.sources)
-            ? finalState.values.sources
-            : [];
-          writeSse(res, 'sources', { sources });
-        } catch (stateErr) {
-          logger.warn(
-            { err: stateErr, threadId: inputs.namespacedThreadId },
-            'Failed to read final graph state for sources',
-          );
+        let sources: RetrievedSource[] = [];
+        if (inputs.isConfidential) {
+          sources = lastSourcesFromEvents;
+        } else {
+          try {
+            const finalState = await graph.getState({
+              configurable: { thread_id: inputs.namespacedThreadId },
+            });
+            sources = Array.isArray(finalState?.values?.sources)
+              ? finalState.values.sources
+              : [];
+          } catch (stateErr) {
+            logger.warn(
+              { err: stateErr, threadId: inputs.namespacedThreadId },
+              'Failed to read final graph state for sources',
+            );
+          }
         }
-        await recordThreadActivity(req, inputs);
-        writeSse(res, 'done', { thread_id: inputs.userThreadId });
+        writeSse(res, 'sources', { sources });
+        writeSse(res, 'citations', { citations: sources });
+        if (!inputs.isConfidential) {
+          await recordThreadActivity(req, inputs);
+        }
+        writeSse(res, 'done', {
+          thread_id: inputs.userThreadId,
+          ...(inputs.isConfidential ? { confidential: true } : {}),
+        });
       }
     } catch (err) {
       logger.error({ err, threadId: inputs.namespacedThreadId }, 'Stream error in /chat-audit/stream');
