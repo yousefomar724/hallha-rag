@@ -33,7 +33,7 @@ export function OrganizationDetailPage() {
 
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
+          {Array.from({ length: 4 }).map((_, i) => (
             <Card key={i}>
               <CardContent className="pt-6"><Skeleton className="h-16 w-full" /></CardContent>
             </Card>
@@ -41,23 +41,50 @@ export function OrganizationDetailPage() {
         </div>
       ) : data ? (
         <>
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Plan</CardTitle></CardHeader>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-muted-foreground">Plan</CardTitle>
+              </CardHeader>
               <CardContent>
                 <Badge className="text-sm">{data.org.plan as string}</Badge>
-                <p className="text-xs text-muted-foreground mt-1">{data.org.planStatus as string}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{data.org.planStatus as string}</p>
               </CardContent>
             </Card>
             <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Audits this period</CardTitle></CardHeader>
-              <CardContent><p className="text-2xl font-bold">{data.org.usageAuditsThisPeriod as number}</p></CardContent>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-muted-foreground">User type</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {(data.org.userType as string | undefined) ? (
+                  <Badge variant="outline" className="text-xs capitalize">
+                    {String(data.org.userType)}
+                  </Badge>
+                ) : (
+                  <p className="text-xs text-muted-foreground">—</p>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-muted-foreground">Audits this period</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold">{data.org.usageAuditsThisPeriod as number}</p>
+              </CardContent>
             </Card>
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Members</CardTitle></CardHeader>
               <CardContent><p className="text-2xl font-bold">{data.memberCount}</p></CardContent>
             </Card>
           </div>
+
+          {(data.org.contextSummary as string | undefined) ? (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Context summary</CardTitle></CardHeader>
+              <CardContent><p className="text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">{String(data.org.contextSummary)}</p></CardContent>
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader><CardTitle className="text-base">Recent Chats</CardTitle></CardHeader>

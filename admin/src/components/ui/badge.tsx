@@ -49,4 +49,6 @@ function Badge({
   })
 }
 
+// Sharing `badgeVariants` with other UI files is intentional (shadcn pattern).
+// eslint-disable-next-line react-refresh/only-export-components -- variant helper co-exported like upstream shadcn/ui
 export { Badge, badgeVariants }

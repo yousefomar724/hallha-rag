@@ -24,6 +24,11 @@ export const AgentStateAnnotation = Annotation.Root({
     reducer: (_prev, next) => next,
     default: () => false,
   }),
+  /** Onboarding profile (org); injected from HTTP into every invoke. */
+  contextSummary: Annotation<string>({
+    reducer: (_prev, next) => next,
+    default: () => '',
+  }),
 });
 
 export type AgentState = typeof AgentStateAnnotation.State;

@@ -1,19 +1,26 @@
 import { Router } from 'express';
 import { ObjectId } from 'mongodb';
 import { z } from 'zod';
+import { generateContextSummary } from '../agent/synthesis.js';
 import { requireAuth } from '../middleware/require-auth.js';
 import { HttpError } from '../middleware/error.js';
 import { getDb } from '../lib/mongo.js';
 import { workspaceProfileSchema } from '../lib/org-profile-schema.js';
+import {
+  auditorOnboardingSchema,
+  businessOnboardingIndustryLabel,
+  businessOnboardingSchema,
+  userTypeSchema,
+} from '../lib/persona-schema.js';
+
+/** POST /organizations/me/persona */
+const setPersonaBodySchema = z.object({
+  userType: userTypeSchema,
+});
 
 export const organizationsRouter: Router = Router();
 
 const ORG_COLLECTION = 'organization';
-
-const bankLinkSchema = z.object({
-  institutionId: z.string().trim().min(1),
-  sandbox: z.boolean().optional().default(true),
-});
 
 const planSchema = z.object({
   plan: z.enum(['free', 'starter', 'business', 'enterprise']),
@@ -68,6 +75,64 @@ organizationsRouter.get('/organizations/me', requireAuth, async (req, res, next)
   }
 });
 
+organizationsRouter.post('/organizations/me/persona', requireAuth, async (req, res, next) => {
+  try {
+    const { userType } = parseBody(setPersonaBodySchema, req.body);
+    const updated = await applyOrgUpdate(req.activeOrgId!, {
+      userType,
+      onboardingStep: 2,
+    });
+    res.json({ ok: true, organization: serializeOrg(updated) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+organizationsRouter.post('/organizations/me/onboarding/business', requireAuth, async (req, res, next) => {
+  try {
+    const data = parseBody(businessOnboardingSchema, req.body);
+    const onboardingData = { ...data } satisfies Record<string, unknown>;
+    const industryLabel = businessOnboardingIndustryLabel(data.industry);
+    const summary = await generateContextSummary({
+      userType: 'business',
+      onboardingData,
+    });
+
+    const updated = await applyOrgUpdate(req.activeOrgId!, {
+      userType: 'business',
+      onboardingData,
+      contextSummary: summary,
+      industry: industryLabel,
+      onboardingStep: 3,
+    });
+    res.json({ ok: true, organization: serializeOrg(updated) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+organizationsRouter.post('/organizations/me/onboarding/auditor', requireAuth, async (req, res, next) => {
+  try {
+    const data = parseBody(auditorOnboardingSchema, req.body);
+    const onboardingData = { ...data } satisfies Record<string, unknown>;
+    const summary = await generateContextSummary({
+      userType: 'auditor',
+      onboardingData,
+    });
+
+    const updated = await applyOrgUpdate(req.activeOrgId!, {
+      userType: 'auditor',
+      onboardingData,
+      contextSummary: summary,
+      onboardingStep: 5,
+      onboardingCompleted: true,
+    });
+    res.json({ ok: true, organization: serializeOrg(updated) });
+  } catch (err) {
+    next(err);
+  }
+});
+
 organizationsRouter.patch('/organizations/me', requireAuth, async (req, res, next) => {
   try {
     const data = parseBody(workspaceProfileSchema, req.body);
@@ -77,20 +142,7 @@ organizationsRouter.patch('/organizations/me', requireAuth, async (req, res, nex
       registrationNumber: data.registrationNumber,
       country: data.country,
       industry: data.industry,
-      onboardingStep: 2,
-    });
-    res.json({ ok: true, organization: serializeOrg(updated) });
-  } catch (err) {
-    next(err);
-  }
-});
-
-organizationsRouter.post('/organizations/me/bank-link', requireAuth, async (req, res, next) => {
-  try {
-    const data = parseBody(bankLinkSchema, req.body);
-    const updated = await applyOrgUpdate(req.activeOrgId!, {
-      bankInstitutionId: data.institutionId,
-      onboardingStep: 3,
+      onboardingStep: 4,
     });
     res.json({ ok: true, organization: serializeOrg(updated) });
   } catch (err) {
@@ -105,7 +157,7 @@ organizationsRouter.post('/organizations/me/plan', requireAuth, async (req, res,
       plan: data.plan,
       billingCycle: data.billing,
       planStatus: 'active',
-      onboardingStep: 4,
+      onboardingStep: 5,
       onboardingCompleted: true,
     });
     res.json({ ok: true, organization: serializeOrg(updated) });
@@ -115,7 +167,7 @@ organizationsRouter.post('/organizations/me/plan', requireAuth, async (req, res,
 });
 
 const onboardingSkipSchema = z.object({
-  fromStep: z.number().int().min(2).max(4).optional(),
+  fromStep: z.number().int().min(2).max(5).optional(),
 });
 
 // Marks onboarding as complete without requiring the user to fill in every step.

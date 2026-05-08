@@ -75,6 +75,8 @@ const auth = betterAuth({
             billingCycle: { type: 'string', input: false, required: false },
             onboardingStep: { type: 'number', input: false, defaultValue: 1 },
             onboardingCompleted: { type: 'boolean', input: false, defaultValue: false },
+            userType: { type: 'string', input: false, required: false },
+            contextSummary: { type: 'string', input: false, required: false },
           },
         },
       },

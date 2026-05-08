@@ -261,6 +261,7 @@ export async function shariaAuditNode(state: AgentState): Promise<AgentStateUpda
     context: state.context,
     documentText: state.documentText,
     sources: state.sources,
+    contextSummary: state.contextSummary,
   });
 
   const llm = getLlmWithTools();

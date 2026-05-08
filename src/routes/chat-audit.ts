@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from 'express';
+import { ObjectId } from 'mongodb';
 import { HumanMessage } from '@langchain/core/messages';
 import { memoryUpload, voiceUpload } from '../middleware/upload.js';
 import { requireAuth } from '../middleware/require-auth.js';
@@ -17,6 +18,7 @@ import { namespaceThreadId, upsertThreadActivity } from '../lib/chat-history.js'
 import { logger } from '../lib/logger.js';
 import { transcribeAudioBuffer } from '../lib/groq-transcription.js';
 import { DEFAULT_AUDIT_USER_MESSAGE } from '../agent/audit-defaults.js';
+import { getDb } from '../lib/mongo.js';
 
 export const chatAuditRouter: Router = Router();
 
@@ -26,7 +28,17 @@ type AuditInputs = {
   userInput: string;
   documentText: string;
   rawUserMessage: string | undefined;
+  contextSummary: string;
 };
+
+async function loadOrgContextSummary(orgId: string): Promise<string> {
+  const db = await getDb();
+  const candidates: Record<string, unknown>[] = [{ id: orgId }];
+  if (ObjectId.isValid(orgId)) candidates.push({ _id: new ObjectId(orgId) });
+  const doc = await db.collection('organization').findOne({ $or: candidates });
+  const s = doc?.contextSummary;
+  return typeof s === 'string' ? s : '';
+}
 
 function asString(content: unknown): string {
   if (typeof content === 'string') return content;
@@ -47,6 +59,8 @@ function asString(content: unknown): string {
 async function prepareAuditInputs(req: Request, res: Response): Promise<AuditInputs> {
   const threadId = typeof req.body?.thread_id === 'string' ? req.body.thread_id.trim() : '';
   if (!threadId) throw new HttpError(422, 'thread_id is required.');
+
+  const contextSummary = await loadOrgContextSummary(req.activeOrgId!);
 
   const message: string | undefined =
     typeof req.body?.message === 'string' && req.body.message.length > 0
@@ -82,6 +96,7 @@ async function prepareAuditInputs(req: Request, res: Response): Promise<AuditInp
     userInput,
     documentText,
     rawUserMessage: message,
+    contextSummary,
   };
 }
 
@@ -139,6 +154,7 @@ chatAuditRouter.post(
           messages: [new HumanMessage(inputs.userInput)],
           documentText: inputs.documentText,
           guardrailBlocked: false,
+          contextSummary: inputs.contextSummary,
         },
         { configurable: { thread_id: inputs.namespacedThreadId } },
       );
@@ -206,6 +222,7 @@ chatAuditRouter.post(
           messages: [new HumanMessage(inputs.userInput)],
           documentText: inputs.documentText,
           guardrailBlocked: false,
+          contextSummary: inputs.contextSummary,
         },
         {
           configurable: { thread_id: inputs.namespacedThreadId },
