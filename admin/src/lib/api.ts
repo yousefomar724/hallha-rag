@@ -65,6 +65,33 @@ export type KnowledgeFileItem = {
   url: string;
 };
 
+export type AuditedClientItem = {
+  id: string;
+  organizationId: string;
+  organizationName: string;
+  name: string;
+  industry: string | null;
+  documentCount: number;
+  archivedAt: string | null;
+  createdAt: string;
+};
+
+export type AuditedClientDetail = {
+  client: {
+    id: string;
+    organizationId: string;
+    organizationName: string;
+    name: string;
+    industry: string | null;
+    description: string | null;
+    documentCount: number;
+    archivedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+  recentThreads: { threadId: string; title?: string; lastMessageAt?: string; createdAt: string }[];
+};
+
 export const api = {
   stats: () => request<Stats>('/admin/stats'),
 
@@ -115,6 +142,18 @@ export const api = {
       method: 'DELETE',
       body: JSON.stringify({ key }),
     }),
+
+  auditedClients: (params?: { limit?: number; cursor?: string; search?: string; firmId?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.limit) q.set('limit', String(params.limit));
+    if (params?.cursor) q.set('cursor', params.cursor);
+    if (params?.search) q.set('search', params.search);
+    if (params?.firmId) q.set('firmId', params.firmId);
+    const suffix = q.toString() ? `?${q}` : '';
+    return request<PaginatedResponse<AuditedClientItem>>(`/admin/audited-clients${suffix}`);
+  },
+
+  auditedClient: (id: string) => request<AuditedClientDetail>(`/admin/audited-clients/${id}`),
 
   uploadKnowledge: (
     file: File,

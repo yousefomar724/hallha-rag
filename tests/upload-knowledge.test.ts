@@ -16,9 +16,9 @@ vi.mock('../src/rag/ingest.js', async () => {
 });
 
 vi.mock('../src/lib/s3.js', () => ({
-  putKnowledgeObject: vi.fn(async () => ({
-    key: 'knowledge/test/abc-rulebook.pdf',
-    url: 'https://example.com/knowledge/test/abc-rulebook.pdf',
+  putGlobalAaoifiObject: vi.fn(async () => ({
+    key: 'uploads/global/aaoifi/abc-rulebook.pdf',
+    url: 'https://example.com/uploads/global/aaoifi/abc-rulebook.pdf',
   })),
 }));
 
@@ -28,17 +28,19 @@ vi.mock('../src/lib/knowledge-files.js', () => ({
   getKnowledgeFileMetaForKeys: vi.fn(async () => new Map()),
   deleteKnowledgeFileByS3Key: vi.fn(async () => {}),
   upsertKnowledgeFileBackfill: vi.fn(async () => {}),
+  getDisplayNamesForS3Keys: vi.fn(async () => new Map()),
 }));
 
 const { createApp } = await import('../src/app.js');
 const { ingestPdfToPinecone } = await import('../src/rag/ingest.js');
-const { putKnowledgeObject } = await import('../src/lib/s3.js');
+const { putGlobalAaoifiObject } = await import('../src/lib/s3.js');
 const { recordKnowledgeFile } = await import('../src/lib/knowledge-files.js');
+const { GLOBAL_AAOIFI_NAMESPACE } = await import('../src/lib/pinecone.js');
 
 describe('POST /upload-knowledge', () => {
   beforeEach(() => {
     vi.mocked(ingestPdfToPinecone).mockClear();
-    vi.mocked(putKnowledgeObject).mockClear();
+    vi.mocked(putGlobalAaoifiObject).mockClear();
     vi.mocked(recordKnowledgeFile).mockClear();
   });
 
@@ -67,7 +69,7 @@ describe('POST /upload-knowledge', () => {
     expect(res.body.detail).toMatch(/file/i);
   });
 
-  it('returns success message when admin uploads a file', async () => {
+  it('uploads global AAOIFI PDFs to the global S3 prefix and global namespace', async () => {
     const app = createApp();
     const { cookieHeader, userId } = await createUserWithSessionCookie(app);
     await setUserRole(userId, 'admin');
@@ -81,31 +83,30 @@ describe('POST /upload-knowledge', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('success');
-    expect(res.body.message).toMatch(/document chunks/);
     expect(res.body.source).toEqual({
       name: 'rulebook.pdf',
       displayName: 'rulebook.pdf',
-      key: 'knowledge/test/abc-rulebook.pdf',
-      url: 'https://example.com/knowledge/test/abc-rulebook.pdf',
+      key: 'uploads/global/aaoifi/abc-rulebook.pdf',
+      url: 'https://example.com/uploads/global/aaoifi/abc-rulebook.pdf',
     });
-    expect(putKnowledgeObject).toHaveBeenCalledOnce();
-    expect(putKnowledgeObject).toHaveBeenCalledWith(
+    expect(putGlobalAaoifiObject).toHaveBeenCalledOnce();
+    expect(putGlobalAaoifiObject).toHaveBeenCalledWith(
       expect.any(Buffer),
       'rulebook.pdf',
       expect.any(String),
-      orgId,
     );
     expect(ingestPdfToPinecone).toHaveBeenCalledOnce();
     expect(ingestPdfToPinecone).toHaveBeenCalledWith({
       buffer: expect.any(Buffer),
       originalName: 'rulebook.pdf',
-      s3Key: 'knowledge/test/abc-rulebook.pdf',
-      s3Url: 'https://example.com/knowledge/test/abc-rulebook.pdf',
-      organizationId: orgId,
+      s3Key: 'uploads/global/aaoifi/abc-rulebook.pdf',
+      s3Url: 'https://example.com/uploads/global/aaoifi/abc-rulebook.pdf',
+      namespace: GLOBAL_AAOIFI_NAMESPACE,
+      extraMetadata: { scope: 'global' },
     });
     expect(recordKnowledgeFile).toHaveBeenCalledWith(
       expect.objectContaining({
-        s3Key: 'knowledge/test/abc-rulebook.pdf',
+        s3Key: 'uploads/global/aaoifi/abc-rulebook.pdf',
         organizationId: orgId,
         originalName: 'rulebook.pdf',
         displayName: 'rulebook.pdf',
@@ -156,6 +157,6 @@ describe('POST /upload-knowledge', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.detail).toMatch(/Could not process/);
-    expect(putKnowledgeObject).toHaveBeenCalled();
+    expect(putGlobalAaoifiObject).toHaveBeenCalled();
   });
 });

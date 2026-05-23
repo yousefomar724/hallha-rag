@@ -71,6 +71,7 @@ describe('POST /chat-audit', () => {
         documentText: '',
         guardrailBlocked: false,
         contextSummary: '',
+        clientId: null,
       }),
       expect.objectContaining({
         configurable: { thread_id: `${orgId}:thread-123` },
@@ -147,6 +148,7 @@ describe('POST /chat-audit', () => {
         documentText: '',
         guardrailBlocked: false,
         contextSummary: '',
+        clientId: null,
       }),
       expect.objectContaining({
         configurable: { thread_id: `${orgId}:thread-secret` },
@@ -175,6 +177,7 @@ describe('POST /chat-audit', () => {
         documentText: 'plain text contract',
         guardrailBlocked: false,
         contextSummary: '',
+        clientId: null,
       }),
       expect.objectContaining({ configurable: { thread_id: `${orgId}:thread-utf8` } }),
     );

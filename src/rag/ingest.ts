@@ -14,16 +14,21 @@ export class IngestError extends Error {
   }
 }
 
+export type IngestExtraMetadata = Record<string, string | number>;
+
 export type IngestInput = {
   buffer: Buffer;
   originalName: string;
   s3Key: string;
   s3Url: string;
-  organizationId: string;
+  /** Pinecone namespace to upsert into. e.g. GLOBAL_AAOIFI_NAMESPACE or clientTenantNamespace(clientId). */
+  namespace: string;
+  /** Extra metadata attached to every chunk (firmId, clientId, scope, documentType, ...). */
+  extraMetadata?: IngestExtraMetadata;
 };
 
 export async function ingestPdfToPinecone(input: IngestInput): Promise<string> {
-  const { buffer, originalName, s3Key, s3Url, organizationId } = input;
+  const { buffer, originalName, s3Key, s3Url, namespace, extraMetadata = {} } = input;
 
   if (!buffer || buffer.length === 0) {
     throw new IngestError('Uploaded file is empty.');
@@ -49,7 +54,6 @@ export async function ingestPdfToPinecone(input: IngestInput): Promise<string> {
     source,
     s3Key,
     s3Url,
-    organizationId,
   });
 
   const usable = chunks.filter((c) => c.pageContent.trim().length > 0);
@@ -64,10 +68,10 @@ export async function ingestPdfToPinecone(input: IngestInput): Promise<string> {
   }
 
   const pineconeIndex = getPineconeClient().Index(env.PINECONE_INDEX);
-  const namespace = pineconeIndex.namespace('');
+  const ns = pineconeIndex.namespace(namespace);
 
   logger.info(
-    { source, pageCount, chunkCount: usable.length, s3Key },
+    { source, pageCount, chunkCount: usable.length, s3Key, namespace },
     'Ingesting PDF chunks',
   );
 
@@ -92,7 +96,6 @@ export async function ingestPdfToPinecone(input: IngestInput): Promise<string> {
         page?: number;
         s3Key?: string;
         s3Url?: string;
-        organizationId?: string;
         headings?: string;
         standard_number?: string;
       };
@@ -110,14 +113,14 @@ export async function ingestPdfToPinecone(input: IngestInput): Promise<string> {
           page: meta.page ?? 0,
           s3Key: meta.s3Key ?? s3Key,
           s3Url: meta.s3Url ?? s3Url,
-          organizationId: meta.organizationId ?? organizationId,
           headings: headingsStr,
           standard_number: stdRaw ?? '',
+          ...extraMetadata,
           [textKey]: doc.pageContent,
         },
       };
     });
-    await namespace.upsert({ records });
+    await ns.upsert({ records });
   }
 
   return `Successfully uploaded ${usable.length} document chunks to Pinecone.`;

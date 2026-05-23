@@ -15,16 +15,20 @@ vi.mock('../src/lib/s3.js', async () => {
   const actual = await vi.importActual<typeof import('../src/lib/s3.js')>('../src/lib/s3.js');
   return {
     ...actual,
-    listKnowledgeObjects: vi.fn(async (organizationId: string) => ({
+    listGlobalAaoifiObjects: vi.fn(async () => ({
       items: [
         {
-          key: `knowledge/${organizationId}/sample.pdf`,
+          key: 'uploads/global/aaoifi/uuid-sample.pdf',
           name: 'sample.pdf',
           size: 99,
           lastModified: new Date('2026-01-02T12:00:00.000Z').toISOString(),
-          url: 'https://example.com/knowledge/sample.pdf',
+          url: 'https://example.com/uploads/global/aaoifi/sample.pdf',
         },
       ],
+      nextContinuationToken: null,
+    })),
+    listKnowledgeObjects: vi.fn(async () => ({
+      items: [],
       nextContinuationToken: null,
     })),
     deleteKnowledgeObject: vi.fn(async () => {}),
@@ -44,11 +48,12 @@ vi.mock('../src/lib/knowledge-files.js', () => ({
 }));
 
 const { createApp } = await import('../src/app.js');
-const { listKnowledgeObjects } = await import('../src/lib/s3.js');
+const { listGlobalAaoifiObjects, listKnowledgeObjects } = await import('../src/lib/s3.js');
 const { deleteKnowledgeFileByS3Key } = await import('../src/lib/knowledge-files.js');
 
 describe('admin knowledge-files metadata', () => {
   beforeEach(() => {
+    vi.mocked(listGlobalAaoifiObjects).mockClear();
     vi.mocked(listKnowledgeObjects).mockClear();
     vi.mocked(deleteKnowledgeFileByS3Key).mockClear();
   });
@@ -57,7 +62,6 @@ describe('admin knowledge-files metadata', () => {
     const app = createApp();
     const { cookieHeader, userId } = await createUserWithSessionCookie(app);
     await setUserRole(userId, 'admin');
-    const orgId = await getPrimaryOrgIdForUser(userId);
 
     const res = await request(app)
       .get('/admin/knowledge-files')
@@ -67,20 +71,19 @@ describe('admin knowledge-files metadata', () => {
     expect(res.status).toBe(200);
     expect(res.body.items).toHaveLength(1);
     expect(res.body.items[0]).toMatchObject({
-      key: `knowledge/${orgId}/sample.pdf`,
+      key: 'uploads/global/aaoifi/uuid-sample.pdf',
       name: 'uploaded-sample.pdf',
       displayName: 'Pretty label',
       size: 99,
     });
-    expect(listKnowledgeObjects).toHaveBeenCalledWith(orgId, expect.any(Object));
+    expect(listGlobalAaoifiObjects).toHaveBeenCalled();
   });
 
   it('DELETE /admin/knowledge-files removes Mongo metadata after storage cleanup', async () => {
     const app = createApp();
     const { cookieHeader, userId } = await createUserWithSessionCookie(app);
     await setUserRole(userId, 'admin');
-    const orgId = await getPrimaryOrgIdForUser(userId);
-    const key = `knowledge/${orgId}/sample.pdf`;
+    const key = 'uploads/global/aaoifi/uuid-sample.pdf';
 
     const res = await request(app)
       .delete('/admin/knowledge-files')

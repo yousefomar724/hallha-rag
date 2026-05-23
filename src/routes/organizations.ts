@@ -12,6 +12,11 @@ import {
   businessOnboardingSchema,
   userTypeSchema,
 } from '../lib/persona-schema.js';
+import {
+  createClient,
+  listClientsForOrg,
+  serializeClient,
+} from '../lib/clients.js';
 
 /** POST /organizations/me/persona */
 const setPersonaBodySchema = z.object({
@@ -120,14 +125,57 @@ organizationsRouter.post('/organizations/me/onboarding/auditor', requireAuth, as
       onboardingData,
     });
 
+    // Auditor flow: after this step, the firm must create its first audited client
+    // (step 4) before onboarding is considered complete (step 5).
     const updated = await applyOrgUpdate(req.activeOrgId!, {
       userType: 'auditor',
       onboardingData,
       contextSummary: summary,
+      onboardingStep: 4,
+    });
+    res.json({ ok: true, organization: serializeOrg(updated) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const firstClientSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  industry: z.string().trim().min(1).max(80).optional(),
+});
+
+/**
+ * POST /organizations/me/onboarding/first-client
+ * Auditor onboarding final step — create the first audited client for the firm.
+ * Idempotent: if any non-archived client already exists for the firm, we just
+ * advance onboarding without creating a duplicate.
+ */
+organizationsRouter.post('/organizations/me/onboarding/first-client', requireAuth, async (req, res, next) => {
+  try {
+    const data = parseBody(firstClientSchema, req.body);
+    const orgId = req.activeOrgId!;
+
+    const existing = await listClientsForOrg({ organizationId: orgId, limit: 1 });
+    let clientDoc = existing.items[0] ?? null;
+    if (!clientDoc) {
+      clientDoc = await createClient({
+        organizationId: orgId,
+        name: data.name,
+        industry: data.industry ?? null,
+        description: null,
+        createdBy: req.user!.id,
+      });
+    }
+
+    const updated = await applyOrgUpdate(orgId, {
       onboardingStep: 5,
       onboardingCompleted: true,
     });
-    res.json({ ok: true, organization: serializeOrg(updated) });
+    res.json({
+      ok: true,
+      organization: serializeOrg(updated),
+      client: serializeClient(clientDoc),
+    });
   } catch (err) {
     next(err);
   }

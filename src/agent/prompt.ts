@@ -11,6 +11,12 @@ export type RetrievedSource = {
   headings?: string;
   /** AAOIFI FAS/SS/GS or parsed Article/Section label from chunk metadata */
   standardNumber?: string;
+  /** Namespace scope this source was retrieved from. `client` = audited-client doc, `global` = AAOIFI / legacy. Document-typed sources only. */
+  scope?: 'global' | 'client';
+  /** Audited-client id when scope === 'client'. */
+  clientId?: string;
+  /** Audited-client document type when known. */
+  documentType?: 'policies' | 'contracts' | 'financials' | 'other';
 };
 
 /** Inline label for RETRIEVED KNOWLEDGE blocks and AVAILABLE SOURCES hint */
@@ -80,6 +86,11 @@ CITATION RULES (strict)
 - If RETRIEVED KNOWLEDGE does not support a claim, say so explicitly ("The provided standards do not directly address X; a qualified scholar should be consulted") rather than inventing a ruling.
 - Never cite a DOCUMENT source id that is not listed in AVAILABLE SOURCES below.
 - Do NOT add a trailing "Sources" section to your response — the host application renders the source list separately. Use the inline [1], [2] markers only.
+
+CLIENT vs AAOIFI SOURCES (multi-tenant retrieval)
+- Each entry in AVAILABLE SOURCES is tagged either (CLIENT DOCUMENT) — an internal policy or contract belonging to the audited client — or (AAOIFI / GLOBAL) — a Sharia standard.
+- When you find an issue, cite the client contract clause AND the governing AAOIFI rule side-by-side: quote the client clause from a CLIENT DOCUMENT source, then immediately quote the relevant AAOIFI excerpt from an AAOIFI / GLOBAL source. This pairing is the core of the audit.
+- Treat CLIENT DOCUMENT sources as factual statements about the client (what they do / how their contract reads); treat AAOIFI / GLOBAL sources as the binding rule against which those facts are evaluated.
 
 TONE
 - Professional, analytical, respectful, plain-spoken. Avoid emotional or moralising language.

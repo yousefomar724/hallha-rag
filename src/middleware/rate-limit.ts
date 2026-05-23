@@ -79,3 +79,13 @@ export const uploadKnowledgeDailyLimiter = rateLimit({
     'Daily knowledge-upload limit reached. Please try again tomorrow.',
   ),
 });
+
+export const uploadClientDocDailyLimiter = rateLimit({
+  ...baseOptions,
+  windowMs: 24 * 60 * 60_000,
+  limit: 60,
+  keyGenerator: userOrIpKey('upload-client-doc-1d'),
+  handler: rateLimitHandler(
+    'Daily client document upload limit reached. Please try again tomorrow.',
+  ),
+});

@@ -6,7 +6,6 @@ type SplitOptions = {
   source: string;
   s3Key: string;
   s3Url: string;
-  organizationId: string;
   maxChars?: number;
   overlap?: number;
 };
@@ -74,7 +73,6 @@ export async function splitMarkdownByHeadings(
     source: opts.source,
     s3Key: opts.s3Key,
     s3Url: opts.s3Url,
-    organizationId: opts.organizationId,
   };
 
   const docs: Document[] = [];

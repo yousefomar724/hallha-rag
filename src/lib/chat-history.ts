@@ -11,10 +11,12 @@ export const CHAT_THREAD_COLLECTION = 'chat_thread';
 export const CHAT_RETENTION_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
 export type ChatThreadDoc = {
-  threadId: string; // namespaced: `${orgId}:${userThreadId}`
+  threadId: string; // namespaced: `${orgId}:${userThreadId}` or `${orgId}:${clientId}:${userThreadId}`
   userThreadId: string;
   organizationId: string;
   userId: string;
+  /** Audited-client id when chat is scoped to a client; null for general firm chats. */
+  clientId?: string | null;
   title: string;
   lastMessageAt: Date;
   createdAt: Date;
@@ -23,8 +25,14 @@ export type ChatThreadDoc = {
   summaryCreatedAt?: Date;
 };
 
-export function namespaceThreadId(orgId: string, userThreadId: string): string {
-  return `${orgId}:${userThreadId}`;
+export function namespaceThreadId(
+  orgId: string,
+  userThreadId: string,
+  clientId?: string | null,
+): string {
+  return clientId
+    ? `${orgId}:${clientId}:${userThreadId}`
+    : `${orgId}:${userThreadId}`;
 }
 
 function assistantMessageContentToText(content: unknown): string {
@@ -79,6 +87,7 @@ export async function purgeThreadWithOptions(opts: {
   organizationId: string;
   userId: string;
   userThreadId: string;
+  clientId?: string | null;
   keepSummary: boolean;
   summaryText: string | null;
 }): Promise<
@@ -91,8 +100,8 @@ export async function purgeThreadWithOptions(opts: {
       summarySaved: boolean;
     }
 > {
-  const { db, organizationId, userId, userThreadId, keepSummary, summaryText } = opts;
-  const namespaced = namespaceThreadId(organizationId, userThreadId);
+  const { db, organizationId, userId, userThreadId, clientId, keepSummary, summaryText } = opts;
+  const namespaced = namespaceThreadId(organizationId, userThreadId, clientId ?? null);
 
   const owned = await db.collection<ChatThreadDoc>(CHAT_THREAD_COLLECTION).findOne({
     threadId: namespaced,
@@ -169,6 +178,7 @@ export async function upsertThreadActivity(opts: {
   userThreadId: string;
   organizationId: string;
   userId: string;
+  clientId?: string | null;
   firstMessageForTitle: string | null;
 }): Promise<void> {
   const db = await getDb();
@@ -180,6 +190,7 @@ export async function upsertThreadActivity(opts: {
         userThreadId: opts.userThreadId,
         organizationId: opts.organizationId,
         userId: opts.userId,
+        clientId: opts.clientId ?? null,
         lastMessageAt: now,
       },
       $setOnInsert: {
@@ -197,17 +208,23 @@ export type ListedThread = {
   title: string;
   lastMessageAt: string;
   createdAt: string;
+  clientId?: string | null;
 };
 
 export async function listThreadsForUser(
   organizationId: string,
   userId: string,
   limit = 50,
+  filter: { clientId?: string | null } = {},
 ): Promise<ListedThread[]> {
   const db = await getDb();
+  const mongoFilter: Record<string, unknown> = { organizationId, userId };
+  if (filter.clientId !== undefined) {
+    mongoFilter['clientId'] = filter.clientId;
+  }
   const cursor = db
     .collection<ChatThreadDoc>(CHAT_THREAD_COLLECTION)
-    .find({ organizationId, userId })
+    .find(mongoFilter)
     .sort({ lastMessageAt: -1 })
     .limit(limit);
   const docs = await cursor.toArray();
@@ -216,6 +233,7 @@ export async function listThreadsForUser(
     title: d.title,
     lastMessageAt: d.lastMessageAt.toISOString(),
     createdAt: d.createdAt.toISOString(),
+    clientId: d.clientId ?? null,
   }));
 }
 

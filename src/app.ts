@@ -9,6 +9,7 @@ import { uploadKnowledgeRouter } from './routes/upload-knowledge.js';
 import { chatAuditRouter } from './routes/chat-audit.js';
 import { chatsRouter } from './routes/chats.js';
 import { organizationsRouter } from './routes/organizations.js';
+import { clientsRouter } from './routes/clients.js';
 import { adminRouter } from './routes/admin.js';
 import { errorHandler } from './middleware/error.js';
 import { installSwagger } from './openapi/install-swagger.js';
@@ -79,6 +80,7 @@ export function createApp(): Express {
   app.use(chatAuditRouter);
   app.use(chatsRouter);
   app.use(organizationsRouter);
+  app.use(clientsRouter);
   app.use(adminRouter);
 
   app.use(errorHandler);

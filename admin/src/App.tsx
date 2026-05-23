@@ -9,6 +9,8 @@ import { OrganizationsPage } from '@/pages/OrganizationsPage';
 import { OrganizationDetailPage } from '@/pages/OrganizationDetailPage';
 import { UsersPage } from '@/pages/UsersPage';
 import { KnowledgePage } from '@/pages/KnowledgePage';
+import { AuditedClientsPage } from '@/pages/AuditedClientsPage';
+import { AuditedClientDetailPage } from '@/pages/AuditedClientDetailPage';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -31,6 +33,8 @@ export function App() {
             <Route index element={<DashboardPage />} />
             <Route path="organizations" element={<OrganizationsPage />} />
             <Route path="organizations/:id" element={<OrganizationDetailPage />} />
+            <Route path="audited-clients" element={<AuditedClientsPage />} />
+            <Route path="audited-clients/:id" element={<AuditedClientDetailPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="knowledge" element={<KnowledgePage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

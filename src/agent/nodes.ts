@@ -1,5 +1,4 @@
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
-import { getRetriever } from '../lib/pinecone.js';
 import { getLlmWithTools } from '../lib/llm.js';
 import { logger } from '../lib/logger.js';
 import {
@@ -13,6 +12,8 @@ import { detectGreeting, greetingReplyFor } from './greeting.js';
 import { classifyRelatedToAudit, shouldSkipGuardrailLlm } from './guardrail.js';
 import type { AgentState, AgentStateUpdate } from './state.js';
 import { getDisplayNamesForS3Keys } from '../lib/knowledge-files.js';
+import { getDisplayNamesForClientDocumentKeys } from './retrieval-display-names.js';
+import { hybridRetrieve, type RetrievalCandidate } from './retrieval.js';
 import { WEB_SEARCH_TOOL_MESSAGE_NAME } from './tools.js';
 
 function isQuotaError(err: unknown): boolean {
@@ -111,7 +112,6 @@ export function routeAfterGuardrail(state: AgentState): 'retrieve' | 'end' {
 }
 
 export async function retrieveShariaRules(state: AgentState): Promise<AgentStateUpdate> {
-  const retriever = await getRetriever(4);
   const lastText = lastUserText(state);
   const searchQuery = lastText || state.documentText.slice(0, 500);
 
@@ -119,25 +119,40 @@ export async function retrieveShariaRules(state: AgentState): Promise<AgentState
     return { context: '', sources: [] };
   }
 
-  const docs = await retriever.invoke(searchQuery);
+  const { ordered } = await hybridRetrieve({
+    query: searchQuery,
+    clientId: state.clientId ?? null,
+  });
 
-  const keysForLookup = docs
-    .map((d) => {
-      const meta = (d.metadata ?? {}) as { s3Key?: unknown };
-      return typeof meta.s3Key === 'string' && meta.s3Key.length > 0 ? meta.s3Key : '';
-    })
-    .filter((k): k is string => k.length > 0);
+  if (ordered.length === 0) {
+    return { context: '', sources: [] };
+  }
 
-  const displayNameByKey = await getDisplayNamesForS3Keys(keysForLookup);
+  const globalKeys: string[] = [];
+  const clientKeys: string[] = [];
+  for (const c of ordered) {
+    const meta = (c.doc.metadata ?? {}) as { s3Key?: unknown };
+    const s3Key = typeof meta.s3Key === 'string' ? meta.s3Key : '';
+    if (!s3Key) continue;
+    if (c.doc.__scope === 'client') clientKeys.push(s3Key);
+    else globalKeys.push(s3Key);
+  }
 
-  const sources: RetrievedSource[] = docs.map((d, i) => {
-    const meta = (d.metadata ?? {}) as {
+  const [globalDisplay, clientDisplay] = await Promise.all([
+    getDisplayNamesForS3Keys(globalKeys),
+    getDisplayNamesForClientDocumentKeys(clientKeys),
+  ]);
+
+  const sources: RetrievedSource[] = ordered.map((c, i) => {
+    const meta = (c.doc.metadata ?? {}) as {
       source?: unknown;
       page?: unknown;
       s3Url?: unknown;
       headings?: unknown;
       s3Key?: unknown;
       standard_number?: unknown;
+      clientId?: unknown;
+      documentType?: unknown;
     };
     const rawSource =
       typeof meta.source === 'string' && meta.source ? meta.source : 'unknown';
@@ -157,9 +172,19 @@ export async function retrieveShariaRules(state: AgentState): Promise<AgentState
       undefined;
     const s3Key =
       typeof meta.s3Key === 'string' && meta.s3Key.length > 0 ? meta.s3Key : undefined;
+    const scope = c.doc.__scope;
     const displayName =
-      (s3Key && displayNameByKey.get(s3Key)) ||
+      (s3Key && (scope === 'client' ? clientDisplay.get(s3Key) : globalDisplay.get(s3Key))) ||
       source;
+    const clientId =
+      typeof meta.clientId === 'string' && meta.clientId ? meta.clientId : undefined;
+    const documentType =
+      meta.documentType === 'policies' ||
+      meta.documentType === 'contracts' ||
+      meta.documentType === 'financials' ||
+      meta.documentType === 'other'
+        ? meta.documentType
+        : undefined;
 
     return {
       id: i + 1,
@@ -167,16 +192,20 @@ export async function retrieveShariaRules(state: AgentState): Promise<AgentState
       source,
       displayName,
       page,
+      scope,
       ...(url ? { url } : {}),
       ...(headings ? { headings } : {}),
       ...(standardNumber ? { standardNumber } : {}),
+      ...(clientId ? { clientId } : {}),
+      ...(documentType ? { documentType } : {}),
     };
   });
 
-  const context = docs
-    .map((d, i) => {
+  const context = ordered
+    .map((c: RetrievalCandidate, i) => {
       const s = sources[i]!;
-      return `[${s.id}] ${formatSourceCitationLabel(s)}\n${d.pageContent}`;
+      const scopeTag = s.scope === 'client' ? 'CLIENT DOCUMENT' : 'AAOIFI / GLOBAL';
+      return `[${s.id}] (${scopeTag}) ${formatSourceCitationLabel(s)}\n${c.doc.pageContent}`;
     })
     .join('\n\n');
 

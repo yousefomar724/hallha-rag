@@ -16,6 +16,7 @@ import { getCompiledGraph, getEphemeralGraph } from '../agent/graph.js';
 import type { RetrievedSource } from '../agent/prompt.js';
 import { getPlan, UNLIMITED } from '../lib/plans.js';
 import { namespaceThreadId, upsertThreadActivity } from '../lib/chat-history.js';
+import { getClientForOrg } from '../lib/clients.js';
 import { logger } from '../lib/logger.js';
 import { transcribeAudioBuffer } from '../lib/groq-transcription.js';
 import { DEFAULT_AUDIT_USER_MESSAGE } from '../agent/audit-defaults.js';
@@ -30,6 +31,8 @@ type AuditInputs = {
   documentText: string;
   rawUserMessage: string | undefined;
   contextSummary: string;
+  /** Validated audited-client id (must belong to req.activeOrgId). null = firm-wide chat. */
+  clientId: string | null;
   /** When true, skip Mongo checkpointing and chat_thread writes (one-shot confidential run). */
   isConfidential: boolean;
 };
@@ -79,6 +82,17 @@ async function prepareAuditInputs(req: Request, res: Response): Promise<AuditInp
   const threadId = typeof req.body?.thread_id === 'string' ? req.body.thread_id.trim() : '';
   if (!threadId) throw new HttpError(422, 'thread_id is required.');
 
+  const rawClientId =
+    typeof req.body?.client_id === 'string' && req.body.client_id.trim().length > 0
+      ? req.body.client_id.trim()
+      : null;
+  let clientId: string | null = null;
+  if (rawClientId) {
+    const owned = await getClientForOrg(req.activeOrgId!, rawClientId);
+    if (!owned) throw new HttpError(404, 'Client not found.');
+    clientId = owned.id;
+  }
+
   const contextSummary = await loadOrgContextSummary(req.activeOrgId!);
 
   const message: string | undefined =
@@ -112,11 +126,12 @@ async function prepareAuditInputs(req: Request, res: Response): Promise<AuditInp
   const isConfidential = parseMultipartBool(req.body?.isConfidential);
   return {
     userThreadId: threadId,
-    namespacedThreadId: namespaceThreadId(req.activeOrgId!, threadId),
+    namespacedThreadId: namespaceThreadId(req.activeOrgId!, threadId, clientId),
     userInput,
     documentText,
     rawUserMessage: message,
     contextSummary,
+    clientId,
     isConfidential,
   };
 }
@@ -151,6 +166,7 @@ async function recordThreadActivity(req: Request, inputs: AuditInputs): Promise<
       userThreadId: inputs.userThreadId,
       organizationId: req.activeOrgId!,
       userId: req.user!.id,
+      clientId: inputs.clientId,
       firstMessageForTitle: inputs.rawUserMessage ?? null,
     });
   } catch (err) {
@@ -176,6 +192,7 @@ chatAuditRouter.post(
           documentText: inputs.documentText,
           guardrailBlocked: false,
           contextSummary: inputs.contextSummary,
+          clientId: inputs.clientId,
         },
         { configurable: { thread_id: inputs.namespacedThreadId } },
       );
@@ -191,6 +208,7 @@ chatAuditRouter.post(
       res.json({
         response: aiResponse,
         thread_id: inputs.userThreadId,
+        client_id: inputs.clientId,
         sources,
         citations: sources,
         ...(inputs.isConfidential ? { confidential: true } : {}),
@@ -242,6 +260,7 @@ chatAuditRouter.post(
       const graph = inputs.isConfidential ? getEphemeralGraph() : await getCompiledGraph();
       writeSse(res, 'meta', {
         thread_id: inputs.userThreadId,
+        client_id: inputs.clientId,
         ...(inputs.isConfidential ? { confidential: true } : {}),
       });
 
@@ -251,6 +270,7 @@ chatAuditRouter.post(
           documentText: inputs.documentText,
           guardrailBlocked: false,
           contextSummary: inputs.contextSummary,
+          clientId: inputs.clientId,
         },
         {
           configurable: { thread_id: inputs.namespacedThreadId },
@@ -303,6 +323,7 @@ chatAuditRouter.post(
         }
         writeSse(res, 'done', {
           thread_id: inputs.userThreadId,
+          client_id: inputs.clientId,
           ...(inputs.isConfidential ? { confidential: true } : {}),
         });
       }

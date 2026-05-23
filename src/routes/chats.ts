@@ -52,7 +52,11 @@ chatsRouter.get('/chats', requireAuth, async (req, res, next) => {
   try {
     const orgId = req.activeOrgId!;
     const userId = req.user!.id;
-    const threads = await listThreadsForUser(orgId, userId);
+    const rawClientId = req.query['clientId'];
+    const filter: { clientId?: string | null } = {};
+    if (rawClientId === 'null' || rawClientId === '') filter.clientId = null;
+    else if (typeof rawClientId === 'string' && rawClientId.length > 0) filter.clientId = rawClientId;
+    const threads = await listThreadsForUser(orgId, userId, 50, filter);
     res.json({ threads });
   } catch (err) {
     next(err);
@@ -69,7 +73,7 @@ chatsRouter.get('/chats/:thread_id', requireAuth, async (req, res, next) => {
     const thread = await findThreadOwned({ organizationId: orgId, userId, userThreadId });
     if (!thread) throw new HttpError(404, 'Chat not found.');
 
-    const namespaced = namespaceThreadId(orgId, userThreadId);
+    const namespaced = namespaceThreadId(orgId, userThreadId, thread.clientId ?? null);
     const graph = await getCompiledGraph();
     const state = await graph.getState({ configurable: { thread_id: namespaced } });
     const values = state?.values as
@@ -113,7 +117,7 @@ chatsRouter.delete('/chats/:thread_id/purge', requireAuth, async (req, res, next
     const thread = await findThreadOwned({ organizationId: orgId, userId, userThreadId });
     if (!thread) throw new HttpError(404, 'Chat not found.');
 
-    const namespaced = namespaceThreadId(orgId, userThreadId);
+    const namespaced = namespaceThreadId(orgId, userThreadId, thread.clientId ?? null);
     const keepSummary = parseKeepSummaryFlag(req.query.keepSummary);
 
     let summaryText: string | null = null;
@@ -130,6 +134,7 @@ chatsRouter.delete('/chats/:thread_id/purge', requireAuth, async (req, res, next
       organizationId: orgId,
       userId,
       userThreadId,
+      clientId: thread.clientId ?? null,
       keepSummary,
       summaryText,
     });
@@ -156,7 +161,10 @@ chatsRouter.delete('/chats/:thread_id', requireAuth, async (req, res, next) => {
     const userThreadId = String(req.params.thread_id ?? '').trim();
     if (!userThreadId) throw new HttpError(422, 'thread_id is required.');
 
-    const namespaced = namespaceThreadId(orgId, userThreadId);
+    const thread = await findThreadOwned({ organizationId: orgId, userId, userThreadId });
+    if (!thread) throw new HttpError(404, 'Chat not found.');
+
+    const namespaced = namespaceThreadId(orgId, userThreadId, thread.clientId ?? null);
     const db = await getDb();
     const result = await deleteThreadAndCheckpoints({
       db,

@@ -29,6 +29,11 @@ export const AgentStateAnnotation = Annotation.Root({
     reducer: (_prev, next) => next,
     default: () => '',
   }),
+  /** Audited-client id (firm's client). When set, retrieval queries both the global AAOIFI namespace and `client_tenant_:clientId`. */
+  clientId: Annotation<string | null>({
+    reducer: (_prev, next) => next ?? null,
+    default: () => null,
+  }),
 });
 
 export type AgentState = typeof AgentStateAnnotation.State;

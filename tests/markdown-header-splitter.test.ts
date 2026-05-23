@@ -5,7 +5,6 @@ const BASE_OPTS = {
   source: 'test.pdf',
   s3Key: 'knowledge/test/test.pdf',
   s3Url: 'https://example.com/test.pdf',
-  organizationId: 'org-1',
 };
 
 describe('splitMarkdownByHeadings', () => {
@@ -108,7 +107,6 @@ describe('splitMarkdownByHeadings', () => {
     expect(docs[0]!.metadata.source).toBe('test.pdf');
     expect(docs[0]!.metadata.s3Key).toBe('knowledge/test/test.pdf');
     expect(docs[0]!.metadata.s3Url).toBe('https://example.com/test.pdf');
-    expect(docs[0]!.metadata.organizationId).toBe('org-1');
   });
 
   it('returns empty array for empty input', async () => {
