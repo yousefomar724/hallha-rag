@@ -1,11 +1,7 @@
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 import { getLlmWithTools } from '../lib/llm.js';
 import { logger } from '../lib/logger.js';
-import {
-  buildHalimSystemPrompt,
-  formatSourceCitationLabel,
-  type RetrievedSource,
-} from './prompt.js';
+import { buildHalimSystemPrompt, type RetrievedSource } from './prompt.js';
 import { extractStandardNumber } from '../utils/standard-number.js';
 import { guardrailRefusalMessageForUserText } from './audit-defaults.js';
 import { detectGreeting, greetingReplyFor } from './greeting.js';
@@ -205,7 +201,12 @@ export async function retrieveShariaRules(state: AgentState): Promise<AgentState
     .map((c: RetrievalCandidate, i) => {
       const s = sources[i]!;
       const scopeTag = s.scope === 'client' ? 'CLIENT DOCUMENT' : 'AAOIFI / GLOBAL';
-      return `[${s.id}] (${scopeTag}) ${formatSourceCitationLabel(s)}\n${c.doc.pageContent}`;
+      const std = s.standardNumber?.trim() || '—';
+      const page = Number.isFinite(s.page) && s.page > 0 ? String(s.page) : '?';
+      const section = s.headings?.trim() || '—';
+      const label = s.displayName?.trim() || s.source;
+      const header = `[${s.id}] (${scopeTag}) ${label} — standard: ${std} — p.${page} — § ${section}`;
+      return `${header}\n${c.doc.pageContent}`;
     })
     .join('\n\n');
 

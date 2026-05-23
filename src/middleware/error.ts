@@ -20,18 +20,22 @@ function isQuotaError(err: unknown): boolean {
     msg.includes('429') ||
     msg.includes('rate limit') ||
     msg.includes('rate_limit') ||
-    msg.includes('too many requests')
+    msg.includes('too many requests') ||
+    msg.includes('quota')
   );
 }
 
-function isGroqUpstreamError(err: unknown): boolean {
+function isUpstreamLlmError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const n = err.name.toLowerCase();
   const msg = err.message;
   return (
     n.includes('groq') ||
     msg.includes('Groq API') ||
-    msg.includes('api.groq.com')
+    msg.includes('api.groq.com') ||
+    n.includes('googlegenerativeai') ||
+    msg.includes('GoogleGenerativeAI') ||
+    msg.includes('generativelanguage.googleapis.com')
   );
 }
 
@@ -67,13 +71,13 @@ export const errorHandler: ErrorRequestHandler = (
   if (isQuotaError(err)) {
     res.status(429).json({
       detail:
-        'LLM rate limit or quota exceeded. Wait and retry, or check your Groq usage and plan limits ' +
-        '(https://console.groq.com/docs/rate-limits).',
+        'LLM rate limit or quota exceeded. Wait and retry, or check your Gemini API usage and plan limits ' +
+        '(https://ai.google.dev/gemini-api/docs/rate-limits).',
     });
     return;
   }
 
-  if (isGroqUpstreamError(err)) {
+  if (isUpstreamLlmError(err)) {
     res.status(502).json({ detail: err instanceof Error ? err.message : String(err) });
     return;
   }
