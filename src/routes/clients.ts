@@ -29,7 +29,7 @@ import {
   deleteClientObject,
   putClientObject,
 } from '../lib/s3.js';
-import { ingestPdfToPinecone } from '../rag/ingest.js';
+import { processClientDocumentIngest } from '../lib/client-ingest.js';
 import { clientTenantNamespace } from '../lib/pinecone.js';
 import { deleteKnowledgeVectorsByS3Key } from '../rag/delete-knowledge.js';
 import { logger } from '../lib/logger.js';
@@ -150,6 +150,15 @@ clientsRouter.get(
   },
 );
 
+/**
+ * Upload a client document.
+ *
+ * Returns **202 Accepted** with `{ documentId, statusUrl, document }` after S3 transport
+ * + Mongo row insert (~fast). The heavy work — PDF parse + embedding + Pinecone upsert —
+ * runs in the background via `setImmediate`. Frontend polls `statusUrl` until status
+ * flips to 'ready' or 'failed'. This avoids the production 504s caused by sync ingest
+ * exceeding gateway timeouts (60s) on cold-start embedding model loads.
+ */
 clientsRouter.post(
   '/api/clients/:clientId/documents',
   requireAuth,
@@ -173,6 +182,7 @@ clientsRouter.post(
           ? body.displayName.trim()
           : req.file.originalname;
 
+      // 1. Transport phase: write the file to S3.
       const { key, url } = await putClientObject(
         req.file.buffer,
         req.file.originalname,
@@ -182,20 +192,10 @@ clientsRouter.post(
         body.documentType,
       );
 
-      const message = await ingestPdfToPinecone({
-        buffer: req.file.buffer,
-        originalName: req.file.originalname,
-        s3Key: key,
-        s3Url: url,
-        namespace: clientTenantNamespace(client.id),
-        extraMetadata: {
-          scope: 'client',
-          firmId,
-          clientId: client.id,
-          documentType: body.documentType,
-        },
-      });
-
+      // 2. Insert metadata row with status='pending'. We do NOT increment the
+      //    client's documentCount yet — that happens once ingest succeeds, so the
+      //    UI doesn't double-count failed uploads.
+      const uploadedAt = new Date();
       try {
         await recordClientDocument({
           s3Key: key,
@@ -204,28 +204,83 @@ clientsRouter.post(
           documentType: body.documentType,
           originalName: req.file.originalname,
           displayName,
-          uploadedAt: new Date(),
+          uploadedAt,
           uploadedBy: req.user!.id,
           sizeBytes: req.file.size ?? 0,
+          status: 'pending',
+          error: null,
+          chunkCount: null,
+          processedAt: null,
         });
-        await incrementClientDocumentCount(firmId, client.id, 1);
       } catch (err) {
-        logger.warn(
-          { err, key },
-          'Failed to record client document metadata (S3/Pinecone already committed)',
-        );
+        logger.error({ err, key }, 'Failed to record pending client document metadata');
+        throw new HttpError(500, 'Failed to record document. Please try again.');
       }
 
-      res.status(201).json({
-        status: 'success',
-        message,
+      // 3. Schedule the heavy work after the response is sent. The closure holds the
+      //    buffer in memory until the background job completes, so we don't need to
+      //    re-download from S3. Errors are handled inside processClientDocumentIngest
+      //    (logged + status flipped to 'failed') — never rethrow here.
+      const buffer = req.file.buffer;
+      const originalName = req.file.originalname;
+      setImmediate(() => {
+        void processClientDocumentIngest({
+          buffer,
+          originalName,
+          s3Key: key,
+          s3Url: url,
+          firmId,
+          clientId: client.id,
+          documentType: body.documentType,
+        });
+      });
+
+      // 4. Respond immediately. Frontend polls the status endpoint.
+      const statusUrl = `/api/clients/${client.id}/documents/${encodeURIComponent(key)}/status`;
+      res.status(202).json({
+        status: 'accepted',
+        documentId: key,
+        statusUrl,
         document: {
           s3Key: key,
           url,
           documentType: body.documentType,
           displayName,
           originalName: req.file.originalname,
+          status: 'pending' as const,
         },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * Poll endpoint for async ingest. Returns the document's current status.
+ * Frontend should poll every ~2s while status === 'pending' and stop once it flips.
+ */
+clientsRouter.get(
+  '/api/clients/:clientId/documents/:documentId/status',
+  requireAuth,
+  async (req, res, next) => {
+    try {
+      const client = await loadOwnedClient(req as never);
+      const rawDocId = req.params['documentId'];
+      const documentId = typeof rawDocId === 'string' ? rawDocId : Array.isArray(rawDocId) ? rawDocId[0] : undefined;
+      if (!documentId) throw new HttpError(400, 'Missing documentId in path.');
+      const doc = await getClientDocumentByKey({
+        organizationId: req.activeOrgId!,
+        clientId: client.id,
+        s3Key: documentId,
+      });
+      if (!doc) throw new HttpError(404, 'Document not found.');
+      res.json({
+        status: doc.status ?? 'ready',
+        error: doc.error ?? null,
+        chunkCount: doc.chunkCount ?? null,
+        processedAt: doc.processedAt ? doc.processedAt.toISOString() : null,
+        document: serializeClientDocument(doc),
       });
     } catch (err) {
       next(err);
@@ -250,14 +305,19 @@ clientsRouter.delete(
       });
       if (!existing) throw new HttpError(404, 'Document not found for this client.');
 
-      await deleteKnowledgeVectorsByS3Key(key, clientTenantNamespace(client.id));
+      // Only 'ready' docs have Pinecone vectors and were counted toward documentCount.
+      // Pending/failed docs may have a partial S3 object but no vectors.
+      const wasReady = (existing.status ?? 'ready') === 'ready';
+      if (wasReady) {
+        await deleteKnowledgeVectorsByS3Key(key, clientTenantNamespace(client.id));
+      }
       await deleteClientObject(key, req.activeOrgId!, client.id);
       const removed = await deleteClientDocument({
         organizationId: req.activeOrgId!,
         clientId: client.id,
         s3Key: key,
       });
-      if (removed) {
+      if (removed && wasReady) {
         await incrementClientDocumentCount(req.activeOrgId!, client.id, -1);
       }
 

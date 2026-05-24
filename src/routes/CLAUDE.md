@@ -27,7 +27,8 @@ Most routes stack: `requireAuth` → rate-limit (minute + hourly) → `usageLimi
 ### `clients.ts` — firm's audited clients (multi-tenant)
 
 - `GET|POST /api/clients`, `GET|PATCH /api/clients/:id`, `POST /api/clients/:id/archive`.
-- Documents subroute: `GET|POST|DELETE /api/clients/:id/documents`. Upload uses S3 + Pinecone namespace `client_tenant_:{clientId}`.
+- Documents subroute: `GET|POST|DELETE /api/clients/:id/documents` + `GET /api/clients/:id/documents/:documentId/status`. Upload uses S3 + Pinecone namespace `client_tenant_:{clientId}`.
+- **Async ingest pattern (POST returns 202).** The upload route only does S3 transport + Mongo row insert (`status: 'pending'`) inline, then schedules `processClientDocumentIngest` (in `src/lib/client-ingest.ts`) via `setImmediate` and responds **202 Accepted** with `{ documentId, statusUrl, document }`. The background job runs `ingestPdfToPinecone` and flips the row to `ready` (incrementing `documentCount`) or `failed` (with `error`). Frontend polls `statusUrl`. This avoids 504s caused by sync ingest exceeding gateway timeouts on cold-start embedding-model loads. Boot-time `recoverStalePendingIngests` marks any `pending` rows >5min old as `failed` (we don't persist the upload buffer across restarts).
 
 ### `organizations.ts` — org/onboarding
 

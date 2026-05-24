@@ -76,8 +76,12 @@ describe('Client document upload + delete', () => {
       .field('documentType', 'contracts')
       .attach('file', Buffer.from('%PDF-1.4 fake'), 'master-agreement.pdf');
 
-    expect(res.status).toBe(201);
+    // 202 Accepted: transport is done, ingest is queued in the background.
+    expect(res.status).toBe(202);
     expect(res.body.document.documentType).toBe('contracts');
+    expect(res.body.document.status).toBe('pending');
+    expect(res.body.documentId).toBe(res.body.document.s3Key);
+    expect(res.body.statusUrl).toMatch(/\/api\/clients\/.+\/documents\/.+\/status$/);
     expect(res.body.document.s3Key).toMatch(
       new RegExp(
         `^uploads/firms/[^/]+/clients/${clientId}/contracts/uuid-master-agreement\\.pdf$`,
@@ -94,6 +98,11 @@ describe('Client document upload + delete', () => {
       'contracts',
     );
 
+    // Wait for the background ingest (setImmediate + a couple promise turns).
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+
     expect(ingestPdfToPinecone).toHaveBeenCalledOnce();
     const ingestArgs = vi.mocked(ingestPdfToPinecone).mock.calls[0]![0];
     expect(ingestArgs.namespace).toBe(clientTenantNamespace(clientId));
@@ -103,7 +112,19 @@ describe('Client document upload + delete', () => {
       documentType: 'contracts',
     });
 
-    // documentCount on the client increments
+    // Poll the status endpoint until the background job marks it ready.
+    let status = 'pending';
+    for (let i = 0; i < 20 && status !== 'ready'; i++) {
+      const st = await request(app)
+        .get(`/api/clients/${clientId}/documents/${encodeURIComponent(res.body.documentId)}/status`)
+        .set('Cookie', cookieHeader)
+        .set('Origin', TEST_AUTH_ORIGIN);
+      status = st.body.status;
+      if (status !== 'ready') await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(status).toBe('ready');
+
+    // documentCount on the client increments only after ingest succeeds.
     const after = await request(app)
       .get(`/api/clients/${clientId}`)
       .set('Cookie', cookieHeader)
@@ -156,8 +177,21 @@ describe('Client document upload + delete', () => {
       .set('Origin', TEST_AUTH_ORIGIN)
       .field('documentType', 'policies')
       .attach('file', Buffer.from('%PDF-1.4 fake'), 'policy.pdf');
-    expect(up.status).toBe(201);
+    expect(up.status).toBe(202);
     const s3Key = up.body.document.s3Key as string;
+
+    // Let background ingest complete so the row is 'ready' (otherwise delete
+    // wouldn't clear Pinecone vectors — which is correct behavior, but this test
+    // asserts the ready-path).
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setImmediate(r));
+      const st = await request(app)
+        .get(`/api/clients/${clientId}/documents/${encodeURIComponent(s3Key)}/status`)
+        .set('Cookie', cookieHeader)
+        .set('Origin', TEST_AUTH_ORIGIN);
+      if (st.body.status === 'ready') break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
 
     const del = await request(app)
       .delete(`/api/clients/${clientId}/documents`)

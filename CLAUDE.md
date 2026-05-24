@@ -32,6 +32,8 @@ For cross-repo work with the Next.js frontend, see [`HALLHA_INTEGRATION.md`](./H
 5. **Throw errors, don't write status codes.** Routes/nodes throw `HttpError`/`IngestError`; the mapper in `middleware/error.ts` translates them. Never `res.status(...).json(...)` for error paths.
 6. **Don't retry LLM calls in nodes.** Quota/429 errors must surface so the mapper returns 429 + `Retry-After`. Retrying in-graph blocks clients for minutes.
 7. **Validate `client_id` ownership** via `getClientForOrg(activeOrgId, clientId)` before scoping retrieval. Never trust the multipart field.
+8. **Client document upload is async (202 + polling).** `POST /api/clients/:id/documents` only does S3 transport + a `pending` row insert inline; PDF parse, embedding, and Pinecone upsert run in a `setImmediate` background job (`src/lib/client-ingest.ts`). Frontend polls `GET .../documents/:documentId/status`. Boot pre-warms the embedding pipeline in `src/index.ts` to avoid the 30–60s cold-start that previously caused production 504s. Node HTTP timeouts raised to 5 min there too.
+9. **Chat thread is persisted up-front in `/chat-audit/stream`.** `recordThreadActivity` fires before `graph.streamEvents` begins so that aborting mid-stream (frontend Stop button) doesn't leave a phantom thread that 404s on follow-up `GET /chats/:id`.
 
 ## Commands
 

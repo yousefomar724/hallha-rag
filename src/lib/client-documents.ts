@@ -4,6 +4,10 @@ import type { ClientDocumentType } from './client-schema.js';
 
 export const CLIENT_DOCUMENT_COLLECTION = 'client_document';
 
+/** Lifecycle of an uploaded client document. Legacy rows (pre-async-ingest) lack this
+ *  field; reads default them to 'ready' so existing UIs keep working. */
+export type ClientDocumentStatus = 'pending' | 'ready' | 'failed';
+
 export type ClientDocumentDoc = {
   s3Key: string;
   organizationId: string;
@@ -14,6 +18,11 @@ export type ClientDocumentDoc = {
   uploadedAt: Date;
   uploadedBy: string;
   sizeBytes: number;
+  status?: ClientDocumentStatus;
+  error?: string | null;
+  chunkCount?: number | null;
+  /** Set when ingest finishes (ready) or fails. */
+  processedAt?: Date | null;
 };
 
 export type SerializedClientDocument = {
@@ -26,6 +35,10 @@ export type SerializedClientDocument = {
   uploadedAt: string;
   uploadedBy: string;
   sizeBytes: number;
+  status: ClientDocumentStatus;
+  error: string | null;
+  chunkCount: number | null;
+  processedAt: string | null;
 };
 
 let indexesEnsured = false;
@@ -51,6 +64,10 @@ export function serializeClientDocument(doc: ClientDocumentDoc): SerializedClien
     uploadedAt: doc.uploadedAt.toISOString(),
     uploadedBy: doc.uploadedBy,
     sizeBytes: doc.sizeBytes,
+    status: doc.status ?? 'ready',
+    error: doc.error ?? null,
+    chunkCount: doc.chunkCount ?? null,
+    processedAt: doc.processedAt ? doc.processedAt.toISOString() : null,
   };
 }
 
@@ -58,6 +75,53 @@ export async function recordClientDocument(doc: ClientDocumentDoc): Promise<void
   await ensureClientDocumentIndexes();
   const db = await getDb();
   await db.collection<ClientDocumentDoc>(CLIENT_DOCUMENT_COLLECTION).insertOne(doc);
+}
+
+/** Lookup by Mongo `_id`-equivalent: we already use s3Key as the unique key, but the new
+ *  async-ingest flow needs to address a document by an id that's known before ingest finishes.
+ *  We treat the s3Key as the document id (it's URL-safe-ish and already unique). */
+export async function getClientDocumentById(opts: {
+  organizationId: string;
+  clientId: string;
+  documentId: string; // == s3Key
+}): Promise<ClientDocumentDoc | null> {
+  return getClientDocumentByKey({
+    organizationId: opts.organizationId,
+    clientId: opts.clientId,
+    s3Key: opts.documentId,
+  });
+}
+
+export async function setClientDocumentStatus(opts: {
+  s3Key: string;
+  status: ClientDocumentStatus;
+  error?: string | null;
+  chunkCount?: number | null;
+}): Promise<void> {
+  await ensureClientDocumentIndexes();
+  const db = await getDb();
+  await db.collection<ClientDocumentDoc>(CLIENT_DOCUMENT_COLLECTION).updateOne(
+    { s3Key: opts.s3Key },
+    {
+      $set: {
+        status: opts.status,
+        error: opts.error ?? null,
+        chunkCount: opts.chunkCount ?? null,
+        processedAt: new Date(),
+      },
+    },
+  );
+}
+
+/** Used by boot-time janitor: find documents stuck in 'pending' beyond a threshold. */
+export async function listStalePendingDocuments(olderThanMs: number): Promise<ClientDocumentDoc[]> {
+  await ensureClientDocumentIndexes();
+  const db = await getDb();
+  const cutoff = new Date(Date.now() - olderThanMs);
+  return db
+    .collection<ClientDocumentDoc>(CLIENT_DOCUMENT_COLLECTION)
+    .find({ status: 'pending', uploadedAt: { $lt: cutoff } })
+    .toArray();
 }
 
 export async function listClientDocuments(opts: {

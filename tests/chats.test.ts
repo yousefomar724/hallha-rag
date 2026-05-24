@@ -134,8 +134,26 @@ describe('Chat history endpoints', () => {
   it('streams audit tokens via SSE on /chat-audit/stream', async () => {
     streamEventsMock.mockImplementation(() =>
       (async function* () {
-        yield { event: 'on_chat_model_stream', data: { chunk: { content: 'Hello ' } } };
-        yield { event: 'on_chat_model_stream', data: { chunk: { content: 'world' } } };
+        // The SSE forwarder filters by `metadata.langgraph_node` so that intermediate
+        // LLM calls (CRAG evaluator, structured parsers) don't leak their JSON to the
+        // visible response. Tag these as `chatQa` so they pass the allowlist.
+        yield {
+          event: 'on_chat_model_stream',
+          metadata: { langgraph_node: 'chatQa' },
+          data: { chunk: { content: 'Hello ' } },
+        };
+        yield {
+          event: 'on_chat_model_stream',
+          metadata: { langgraph_node: 'chatQa' },
+          data: { chunk: { content: 'world' } },
+        };
+        // A leak from an intermediate node should NOT make it through. The test below
+        // asserts the visible body contains only "Hello world".
+        yield {
+          event: 'on_chat_model_stream',
+          metadata: { langgraph_node: 'crag-evaluator' },
+          data: { chunk: { content: '{"relevant":true}' } },
+        };
       })(),
     );
 
@@ -156,6 +174,8 @@ describe('Chat history endpoints', () => {
     expect(res.text).toContain('event: token');
     expect(res.text).toContain('"text":"Hello "');
     expect(res.text).toContain('"text":"world"');
+    // The intermediate evaluator JSON must NOT leak into visible tokens.
+    expect(res.text).not.toContain('relevant');
     expect(res.text).toContain('event: sources');
     expect(res.text).toContain('event: citations');
     expect(res.text).toContain('event: done');

@@ -265,6 +265,12 @@ chatAuditRouter.post(
         ...(inputs.isConfidential ? { confidential: true } : {}),
       });
 
+      // Persist the thread up-front so a mid-stream abort (Stop button) doesn't leave
+      // a phantom thread that 404s on follow-up GET /chats/:id. Idempotent upsert.
+      if (!inputs.isConfidential) {
+        await recordThreadActivity(req, inputs);
+      }
+
       const stream = graph.streamEvents(
         {
           messages: [new HumanMessage(inputs.userInput)],
@@ -281,6 +287,15 @@ chatAuditRouter.post(
 
       let lastSourcesFromEvents: RetrievedSource[] = [];
 
+      // Only the user-facing nodes should stream tokens to the client. Intermediate
+      // LLM calls inside the CRAG loop (relevance evaluator, query rewriter, clause
+      // parser, structured Sharia reasoning, guardrail classifier, purification
+      // param extraction) all emit `on_chat_model_stream` events too — and their
+      // structured-output JSON (e.g. `{"relevant":true,...}`) would otherwise leak
+      // into the visible response. LangGraph v2 events carry `metadata.langgraph_node`
+      // so we can filter to just the synthesis / chat-Q&A nodes.
+      const STREAMABLE_NODES = new Set(['chatQa', 'synthesizeReport']);
+
       for await (const evt of stream) {
         if (aborted) break;
         if (evt && typeof evt === 'object' && 'event' in evt) {
@@ -291,6 +306,10 @@ chatAuditRouter.post(
             if (next) lastSourcesFromEvents = next;
           }
           if (eventName === 'on_chat_model_stream') {
+            const meta = (evt as { metadata?: { langgraph_node?: unknown } }).metadata;
+            const node =
+              typeof meta?.langgraph_node === 'string' ? meta.langgraph_node : '';
+            if (!STREAMABLE_NODES.has(node)) continue;
             const chunk = (evt as { data?: { chunk?: { content?: unknown } } }).data?.chunk;
             const text = asString(chunk?.content);
             if (text.length > 0) writeSse(res, 'token', { text });

@@ -55,8 +55,11 @@ For each endpoint actually called from the frontend.
 | `PATCH /api/clients/:id` | same | `useUpdateClientMutation` |
 | `POST /api/clients/:id/archive` | same | `useArchiveClientMutation` |
 | `GET /api/clients/:id/documents` (`?documentType=...`) | same | `useClientDocumentsQuery` |
-| `POST /api/clients/:id/documents` | same | `uploadClientDocument` (XHR — for `xhr.upload.onprogress`) |
-| `DELETE /api/clients/:id/documents` | same | `useDeleteClientDocumentMutation` (body: `{ s3Key }`) |
+| `POST /api/clients/:id/documents` | same | `uploadClientDocument` (XHR for `xhr.upload.onprogress`) — **returns 202** with `{ documentId, statusUrl, document }`; ingest runs async, frontend polls `statusUrl`. |
+| `GET /api/clients/:id/documents/:documentId/status` | same | `useDocumentStatusQuery` polls every ~2s → `{ status: 'pending'\|'ready'\|'failed', error, chunkCount, processedAt, document }`. |
+| `DELETE /api/clients/:id/documents` | same | `useDeleteClientDocumentMutation` (body: `{ s3Key }`) — also works for `pending`/`failed` docs to clean up partial uploads. |
+
+> **Async ingest contract.** `POST /api/clients/:id/documents` no longer runs PDF parse + embedding + Pinecone upsert inline (that produced 504s in prod when the cold-start embedding model exceeded gateway timeouts). The route now: writes the file to S3, inserts a `client_document` row with `status='pending'`, and returns **202 Accepted** with the `documentId` (== `s3Key`) and a `statusUrl`. A `setImmediate` callback runs ingest in the background and flips the row to `ready` (incrementing `documentCount`) or `failed` (with an `error` string). The frontend should disable the document until status is `ready`.
 
 ### Organization / onboarding
 
