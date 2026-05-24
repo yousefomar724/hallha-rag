@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm test*)",
+      "Bash(pnpm typecheck*)",
+      "Bash(pnpm lint*)",
+      "Bash(pnpm format*)",
+      "Bash(pnpm build*)",
+      "Bash(pnpm dev*)",
+      "Bash(pnpm install*)",
+      "Bash(pnpm seed:admin*)",
+      "Bash(pnpm backfill:knowledge-files*)",
+      "Bash(pnpm dev:auth-smoke*)",
+      "Bash(pnpm dev:admin*)",
+      "Bash(pnpm build:admin*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(git branch*)",
+      "Bash(node --version)",
+      "Bash(tsx*)",
+      "Bash(Get-ChildItem*)",
+      "Bash(Test-Path*)"
+    ],
+    "deny": [
+      "Edit(src/lib/embeddings.ts)",
+      "Write(src/lib/embeddings.ts)"
+    ]
+  }
+}
