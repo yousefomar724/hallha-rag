@@ -21,6 +21,7 @@ import { logger } from '../lib/logger.js';
 import { transcribeAudioBuffer } from '../lib/groq-transcription.js';
 import { DEFAULT_AUDIT_USER_MESSAGE } from '../agent/audit-defaults.js';
 import { getDb } from '../lib/mongo.js';
+import { parseUpstreamLlmError } from '../lib/llm-errors.js';
 
 export const chatAuditRouter: Router = Router();
 
@@ -329,8 +330,14 @@ chatAuditRouter.post(
       }
     } catch (err) {
       logger.error({ err, threadId: inputs.namespacedThreadId }, 'Stream error in /chat-audit/stream');
-      const message = err instanceof Error ? err.message : String(err);
-      writeSse(res, 'error', { detail: message });
+      const parsed = parseUpstreamLlmError(err);
+      writeSse(res, 'error', {
+        detail: parsed.message,
+        kind: parsed.kind,
+        status: parsed.status,
+        ...(parsed.provider ? { provider: parsed.provider } : {}),
+        ...(parsed.retryAfterSeconds ? { retryAfterSeconds: parsed.retryAfterSeconds } : {}),
+      });
     } finally {
       clearInterval(heartbeat);
       res.end();

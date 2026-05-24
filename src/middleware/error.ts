@@ -2,6 +2,7 @@ import type { ErrorRequestHandler, Request, Response, NextFunction } from 'expre
 import { APIError } from 'better-auth';
 import { IngestError } from '../rag/ingest.js';
 import { logger } from '../lib/logger.js';
+import { parseUpstreamLlmError } from '../lib/llm-errors.js';
 
 export class HttpError extends Error {
   constructor(
@@ -11,32 +12,6 @@ export class HttpError extends Error {
     super(message);
     this.name = 'HttpError';
   }
-}
-
-function isQuotaError(err: unknown): boolean {
-  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
-  return (
-    msg.includes('resource_exhausted') ||
-    msg.includes('429') ||
-    msg.includes('rate limit') ||
-    msg.includes('rate_limit') ||
-    msg.includes('too many requests') ||
-    msg.includes('quota')
-  );
-}
-
-function isUpstreamLlmError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const n = err.name.toLowerCase();
-  const msg = err.message;
-  return (
-    n.includes('groq') ||
-    msg.includes('Groq API') ||
-    msg.includes('api.groq.com') ||
-    n.includes('googlegenerativeai') ||
-    msg.includes('GoogleGenerativeAI') ||
-    msg.includes('generativelanguage.googleapis.com')
-  );
 }
 
 export const errorHandler: ErrorRequestHandler = (
@@ -68,17 +43,17 @@ export const errorHandler: ErrorRequestHandler = (
     return;
   }
 
-  if (isQuotaError(err)) {
-    res.status(429).json({
-      detail:
-        'LLM rate limit or quota exceeded. Wait and retry, or check your Gemini API usage and plan limits ' +
-        '(https://ai.google.dev/gemini-api/docs/rate-limits).',
+  const parsed = parseUpstreamLlmError(err);
+  if (parsed.kind !== 'unknown') {
+    if (parsed.retryAfterSeconds) {
+      res.setHeader('Retry-After', String(parsed.retryAfterSeconds));
+    }
+    res.status(parsed.status).json({
+      detail: parsed.message,
+      kind: parsed.kind,
+      ...(parsed.provider ? { provider: parsed.provider } : {}),
+      ...(parsed.retryAfterSeconds ? { retryAfterSeconds: parsed.retryAfterSeconds } : {}),
     });
-    return;
-  }
-
-  if (isUpstreamLlmError(err)) {
-    res.status(502).json({ detail: err instanceof Error ? err.message : String(err) });
     return;
   }
 

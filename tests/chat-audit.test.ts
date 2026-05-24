@@ -197,6 +197,6 @@ describe('POST /chat-audit', () => {
       .field('message', 'hello');
 
     expect(res.status).toBe(429);
-    expect(res.body.detail).toMatch(/quota/i);
+    expect(res.body.detail).toMatch(/quota|rate limit/i);
   });
 });
