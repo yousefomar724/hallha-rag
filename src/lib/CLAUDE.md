@@ -6,7 +6,7 @@ Every file here exports a lazy `getX()` that initializes on first call. Never in
 
 | File | Exports | Notes |
 |---|---|---|
-| `llm.ts` | `getLlm`, `getGuardrailLlm`, `getLlmWithTools` | Gemini via `@langchain/google-genai`. Models from `env.GEMINI_MODEL` / `GEMINI_GUARDRAIL_MODEL`. |
+| `llm.ts` | `getReasoningLlm`, `getChatLlm`, `getReasoningLlmWithTools`, `getChatLlmWithTools` (+ legacy aliases `getLlm`/`getGuardrailLlm`/`getLlmWithTools`) | OpenRouter via `@langchain/openai`'s `ChatOpenAI` with `configuration.baseURL='https://openrouter.ai/api/v1'` and `defaultHeaders` (`HTTP-Referer`, `X-Title`). Models from `env.OPENROUTER_REASONING_MODEL` (default `deepseek/deepseek-r1`) / `OPENROUTER_CHAT_MODEL` (default `deepseek/deepseek-chat`). |
 | `groq-transcription.ts` | `transcribeAudioBuffer` | Groq Whisper. Retained as a separate provider; voice-only path. |
 | `embeddings.ts` | `getEmbeddings`, `HuggingFaceTransformersEmbeddings` | **PARITY-LOCKED — DO NOT EDIT.** See "Don't touch" below. |
 | `pinecone.ts` | `getPineconeClient`, `getPineconeIndex` | Multi-namespace queries (global AAOIFI + `client_tenant_:{clientId}`). |
@@ -14,7 +14,7 @@ Every file here exports a lazy `getX()` that initializes on first call. Never in
 | `auth.ts` | `auth` (Better-Auth instance) | Admin plugin enabled. Roles: `user`/`admin`/`superadmin`, `banned` field. Mongo adapter. |
 | `s3.ts` | `getS3Client`, presigned-URL helpers | Knowledge file storage. |
 | `logger.ts` | `logger` | Pino singleton. Used via `pino-http` middleware. |
-| `llm-errors.ts` | `parseUpstreamLlmError` | Maps Gemini/Groq/Google errors to `{ status, message, kind, provider, retryAfterSeconds }`. |
+| `llm-errors.ts` | `parseUpstreamLlmError` | Maps OpenRouter/DeepSeek/Gemini/Groq errors to `{ status, message, kind, provider, retryAfterSeconds }`. |
 | `chat-history.ts` | `namespaceThreadId`, `upsertThreadActivity`, index helpers | Thread metadata in `chat_threads`. |
 | `clients.ts` | `getClientForOrg`, CRUD | Audited-client docs for the firm. Always validates `orgId` ownership. |
 | `client-documents.ts` | Metadata for ingested PDFs per client. |
@@ -35,4 +35,4 @@ These break cross-runtime compatibility silently:
 
 ## Error parsing
 
-`parseUpstreamLlmError(err)` recognizes Gemini (`RESOURCE_EXHAUSTED`, `INVALID_ARGUMENT`, `permission_denied`, etc.), Groq (`rate_limit_*`, status 429), and generic HTTP. Returns enough metadata for the error mapper to set HTTP status + `Retry-After`. Add new providers here, not at call sites.
+`parseUpstreamLlmError(err)` recognizes OpenRouter (`openrouter.ai`, `deepseek/deepseek-*` slugs), DeepSeek (`api.deepseek.com`, `insufficient_quota`, OpenAI-shape 429), Gemini (`RESOURCE_EXHAUSTED`, `INVALID_ARGUMENT`, `permission_denied`, etc.), Groq (`rate_limit_*`, status 429), and generic HTTP. Returns enough metadata for the error mapper to set HTTP status + `Retry-After`. Add new providers here, not at call sites.

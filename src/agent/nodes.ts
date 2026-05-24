@@ -1,20 +1,23 @@
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
-import { getLlmWithTools } from '../lib/llm.js';
+import { getChatLlmWithTools } from '../lib/llm.js';
 import { logger } from '../lib/logger.js';
 import { buildHalimSystemPrompt, type RetrievedSource } from './prompt.js';
-import { extractStandardNumber } from '../utils/standard-number.js';
 import { guardrailRefusalMessageForUserText } from './audit-defaults.js';
 import { detectGreeting, greetingReplyFor } from './greeting.js';
 import { classifyRelatedToAudit, shouldSkipGuardrailLlm } from './guardrail.js';
 import type { AgentState, AgentStateUpdate } from './state.js';
-import { getDisplayNamesForS3Keys } from '../lib/knowledge-files.js';
-import { getDisplayNamesForClientDocumentKeys } from './retrieval-display-names.js';
-import { hybridRetrieve, type RetrievalCandidate } from './retrieval.js';
+import { hybridRetrieve } from './retrieval.js';
+import { formatSourcesFromCandidates } from './source-format.js';
 import { WEB_SEARCH_TOOL_MESSAGE_NAME } from './tools.js';
 
 function isQuotaError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
-  return msg.includes('RESOURCE_EXHAUSTED') || msg.includes('429');
+  return (
+    msg.includes('RESOURCE_EXHAUSTED') ||
+    msg.includes('429') ||
+    msg.toLowerCase().includes('insufficient_quota') ||
+    msg.toLowerCase().includes('rate_limit')
+  );
 }
 
 function messageContentToText(content: unknown): string {
@@ -33,13 +36,6 @@ function messageContentToText(content: unknown): string {
   return '';
 }
 
-function basenameOnly(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return 'unknown';
-  const parts = trimmed.split(/[\\/]/);
-  return parts[parts.length - 1] || trimmed;
-}
-
 function hostnameFromUrl(url: string): string {
   try {
     const u = new URL(url);
@@ -54,13 +50,19 @@ export function lastUserText(state: AgentState): string {
   return lastMessage ? messageContentToText(lastMessage.content) : '';
 }
 
-export function routeOnEntry(state: AgentState): 'greeting' | 'audit' {
+/**
+ * Three entry branches:
+ *   - 'greeting' — bare greeting with no document
+ *   - 'audit'    — a document was uploaded → run the new agentic CRAG pipeline
+ *   - 'chat'     — no document, substantive question → run the simpler chat-Q&A path
+ */
+export function routeOnEntry(state: AgentState): 'greeting' | 'audit' | 'chat' {
   if (state.documentText && state.documentText.trim().length > 0) return 'audit';
   const text = lastUserText(state);
-  return detectGreeting(text) ? 'greeting' : 'audit';
+  return detectGreeting(text) ? 'greeting' : 'chat';
 }
 
-export function routeAfterAudit(state: AgentState): 'tools' | 'harvestWebSources' {
+export function routeAfterChat(state: AgentState): 'tools' | 'harvestWebSources' {
   const last = state.messages.at(-1);
   if (
     last &&
@@ -107,6 +109,10 @@ export function routeAfterGuardrail(state: AgentState): 'retrieve' | 'end' {
   return state.guardrailBlocked ? 'end' : 'retrieve';
 }
 
+/**
+ * Chat-path retrieval (non-document). One Pinecone roundtrip + display-name lookup;
+ * delegates formatting to the shared helper used by the CRAG loop.
+ */
 export async function retrieveShariaRules(state: AgentState): Promise<AgentStateUpdate> {
   const lastText = lastUserText(state);
   const searchQuery = lastText || state.documentText.slice(0, 500);
@@ -124,92 +130,7 @@ export async function retrieveShariaRules(state: AgentState): Promise<AgentState
     return { context: '', sources: [] };
   }
 
-  const globalKeys: string[] = [];
-  const clientKeys: string[] = [];
-  for (const c of ordered) {
-    const meta = (c.doc.metadata ?? {}) as { s3Key?: unknown };
-    const s3Key = typeof meta.s3Key === 'string' ? meta.s3Key : '';
-    if (!s3Key) continue;
-    if (c.doc.__scope === 'client') clientKeys.push(s3Key);
-    else globalKeys.push(s3Key);
-  }
-
-  const [globalDisplay, clientDisplay] = await Promise.all([
-    getDisplayNamesForS3Keys(globalKeys),
-    getDisplayNamesForClientDocumentKeys(clientKeys),
-  ]);
-
-  const sources: RetrievedSource[] = ordered.map((c, i) => {
-    const meta = (c.doc.metadata ?? {}) as {
-      source?: unknown;
-      page?: unknown;
-      s3Url?: unknown;
-      headings?: unknown;
-      s3Key?: unknown;
-      standard_number?: unknown;
-      clientId?: unknown;
-      documentType?: unknown;
-    };
-    const rawSource =
-      typeof meta.source === 'string' && meta.source ? meta.source : 'unknown';
-    const source = basenameOnly(rawSource);
-    const pageNum = Number(meta.page);
-    const page = Number.isFinite(pageNum) ? pageNum : 0;
-    const url = typeof meta.s3Url === 'string' && meta.s3Url ? meta.s3Url : undefined;
-    const headings =
-      typeof meta.headings === 'string' && meta.headings ? meta.headings : undefined;
-    const stdFromMeta =
-      typeof meta.standard_number === 'string' && meta.standard_number.trim()
-        ? meta.standard_number.trim()
-        : undefined;
-    const standardNumber =
-      stdFromMeta ??
-      extractStandardNumber(headings ?? '', rawSource) ??
-      undefined;
-    const s3Key =
-      typeof meta.s3Key === 'string' && meta.s3Key.length > 0 ? meta.s3Key : undefined;
-    const scope = c.doc.__scope;
-    const displayName =
-      (s3Key && (scope === 'client' ? clientDisplay.get(s3Key) : globalDisplay.get(s3Key))) ||
-      source;
-    const clientId =
-      typeof meta.clientId === 'string' && meta.clientId ? meta.clientId : undefined;
-    const documentType =
-      meta.documentType === 'policies' ||
-      meta.documentType === 'contracts' ||
-      meta.documentType === 'financials' ||
-      meta.documentType === 'other'
-        ? meta.documentType
-        : undefined;
-
-    return {
-      id: i + 1,
-      type: 'document' as const,
-      source,
-      displayName,
-      page,
-      scope,
-      ...(url ? { url } : {}),
-      ...(headings ? { headings } : {}),
-      ...(standardNumber ? { standardNumber } : {}),
-      ...(clientId ? { clientId } : {}),
-      ...(documentType ? { documentType } : {}),
-    };
-  });
-
-  const context = ordered
-    .map((c: RetrievalCandidate, i) => {
-      const s = sources[i]!;
-      const scopeTag = s.scope === 'client' ? 'CLIENT DOCUMENT' : 'AAOIFI / GLOBAL';
-      const std = s.standardNumber?.trim() || '—';
-      const page = Number.isFinite(s.page) && s.page > 0 ? String(s.page) : '?';
-      const section = s.headings?.trim() || '—';
-      const label = s.displayName?.trim() || s.source;
-      const header = `[${s.id}] (${scopeTag}) ${label} — standard: ${std} — p.${page} — § ${section}`;
-      return `${header}\n${c.doc.pageContent}`;
-    })
-    .join('\n\n');
-
+  const { sources, context } = await formatSourcesFromCandidates(ordered, 1);
   return { context, sources };
 }
 
@@ -259,7 +180,6 @@ function messagesAfterLatestHuman(messages: AgentState['messages']): AgentState[
   return messages.slice(lastIdx + 1);
 }
 
-/** Exported for unit tests — merges Tavily ToolMessages into citation rows after audit completes. */
 export function mergeWebSourcesFromMessages(
   messages: AgentState['messages'],
   docSources: RetrievedSource[],
@@ -297,7 +217,11 @@ export function harvestWebSourcesNode(state: AgentState): AgentStateUpdate {
   return { sources: merged };
 }
 
-export async function shariaAuditNode(state: AgentState): Promise<AgentStateUpdate> {
+/**
+ * Chat-Q&A node (no document attached). DeepSeek-V3 + Tavily web search tool.
+ * Stream events from this node become the SSE `token` payload for the chat path.
+ */
+export async function chatQaNode(state: AgentState): Promise<AgentStateUpdate> {
   const systemPrompt = buildHalimSystemPrompt({
     context: state.context,
     documentText: state.documentText,
@@ -305,21 +229,24 @@ export async function shariaAuditNode(state: AgentState): Promise<AgentStateUpda
     contextSummary: state.contextSummary,
   });
 
-  const llm = getLlmWithTools();
+  const llm = getChatLlmWithTools();
   const messagesToSend = [new SystemMessage(systemPrompt), ...state.messages];
 
   try {
     const response = await llm.invoke(messagesToSend);
     return { messages: [response] };
   } catch (err) {
-    // Do not backoff-retry RESOURCE_EXHAUSTED: free-tier daily/minute caps rarely clear within
-    // seconds; long waits only extend request time (~minutes) before the same 429.
     if (isQuotaError(err)) {
       logger.warn(
         { err: err instanceof Error ? err.message : String(err) },
-        'LLM quota or rate limit',
+        'Chat LLM quota or rate limit',
       );
     }
     throw err;
   }
 }
+
+// Back-compat re-export (legacy name; some imports may still use it).
+export { chatQaNode as shariaAuditNode };
+// Back-compat re-export of legacy router name; same behavior as routeAfterChat.
+export { routeAfterChat as routeAfterAudit };

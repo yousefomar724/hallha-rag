@@ -22,7 +22,7 @@ export type ParsedUpstreamError = {
   /** HTTP status that should be surfaced to the client. */
   status: number;
   /** The provider we think raised this, when identifiable. */
-  provider?: 'gemini' | 'groq';
+  provider?: 'gemini' | 'groq' | 'deepseek' | 'openrouter';
 };
 
 function extractRetryAfterSeconds(msg: string): number | undefined {
@@ -46,7 +46,10 @@ function extractRetryAfterSeconds(msg: string): number | undefined {
   return undefined;
 }
 
-function detectProvider(name: string, msg: string): 'gemini' | 'groq' | undefined {
+function detectProvider(
+  name: string,
+  msg: string,
+): 'gemini' | 'groq' | 'deepseek' | 'openrouter' | undefined {
   if (
     name.includes('googlegenerativeai') ||
     msg.includes('GoogleGenerativeAI') ||
@@ -63,7 +66,39 @@ function detectProvider(name: string, msg: string): 'gemini' | 'groq' | undefine
   ) {
     return 'groq';
   }
+  if (
+    msg.includes('openrouter.ai') ||
+    msg.includes('openrouter') ||
+    msg.includes('deepseek/deepseek-r1') ||
+    msg.includes('deepseek/deepseek-chat') ||
+    msg.includes('deepseek/deepseek-v3')
+  ) {
+    return 'openrouter';
+  }
+  if (
+    msg.includes('api.deepseek.com') ||
+    msg.includes('deepseek-reasoner') ||
+    msg.includes('deepseek-chat') ||
+    /\bdeepseek\b/i.test(msg)
+  ) {
+    return 'deepseek';
+  }
   return undefined;
+}
+
+function providerLabel(p: ParsedUpstreamError['provider']): string {
+  switch (p) {
+    case 'gemini':
+      return 'Gemini';
+    case 'groq':
+      return 'Groq';
+    case 'deepseek':
+      return 'DeepSeek';
+    case 'openrouter':
+      return 'OpenRouter';
+    default:
+      return 'the AI provider';
+  }
 }
 
 export function parseUpstreamLlmError(err: unknown): ParsedUpstreamError {
@@ -91,7 +126,7 @@ export function parseUpstreamLlmError(err: unknown): ParsedUpstreamError {
       lowerMsg.includes('429'));
 
   if (isQuotaExhausted) {
-    const where = provider === 'gemini' ? 'Gemini API' : provider === 'groq' ? 'Groq API' : 'the AI provider';
+    const where = `${providerLabel(provider)} API`;
     return {
       kind: 'quota_exhausted',
       message: `${where} quota exceeded. Check the project's billing or wait for the daily limit to reset.`,
@@ -102,7 +137,7 @@ export function parseUpstreamLlmError(err: unknown): ParsedUpstreamError {
   }
 
   if (isRateLimited) {
-    const where = provider === 'gemini' ? 'Gemini' : provider === 'groq' ? 'Groq' : 'the AI provider';
+    const where = providerLabel(provider);
     return {
       kind: 'rate_limited',
       message: retryAfterSeconds
@@ -145,7 +180,7 @@ export function parseUpstreamLlmError(err: unknown): ParsedUpstreamError {
   if (provider) {
     return {
       kind: 'upstream_error',
-      message: `${provider === 'gemini' ? 'Gemini' : 'Groq'} returned an error. Try again shortly.`,
+      message: `${providerLabel(provider)} returned an error. Try again shortly.`,
       status: 502,
       provider,
     };

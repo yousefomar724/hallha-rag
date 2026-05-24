@@ -6,7 +6,7 @@ Cross-repo contract between the Hallha backend and the Next.js frontend. Keep th
 
 | Role | Path | Stack | Default port |
 |---|---|---|---|
-| Backend | `E:\client-projects\hallha-node` | Express 5 + LangGraph + Gemini + Pinecone + MongoDB + Better-Auth + S3 | 8000 |
+| Backend | `E:\client-projects\hallha-node` | Express 5 + LangGraph (Agentic CRAG) + DeepSeek + Pinecone + MongoDB + Better-Auth + S3 | 8000 |
 | Frontend (user app) | `E:\client-projects\hallha-front-end` | Next.js 16 App Router + React 19 | 3000 |
 | Admin SPA | `E:\client-projects\hallha-node\admin\` | Vite + React 19 + shadcn (pnpm workspace sibling) | 5173 |
 
@@ -106,7 +106,7 @@ Backend `src/middleware/error.ts` maps exceptions to HTTP responses:
 |---|---|---|
 | `HttpError(status, message)` | `status` | `{ detail: message }` |
 | `IngestError(message)` | 400 | `{ detail: message }` |
-| Upstream LLM quota / rate-limit | 429 | `{ detail, kind: 'quota_exhausted' \| 'rate_limited', provider: 'gemini' \| 'groq', retryAfterSeconds? }` + `Retry-After` header |
+| Upstream LLM quota / rate-limit | 429 | `{ detail, kind: 'quota_exhausted' \| 'rate_limited', provider: 'deepseek' \| 'gemini' \| 'groq', retryAfterSeconds? }` + `Retry-After` header |
 | Upstream LLM other (5xx) | 502 | `{ detail, kind: 'upstream_error', provider }` |
 | Better-Auth `APIError` | its status | `{ detail }` |
 | Anything else | 500 | `{ detail: 'Internal Server Error' }` |

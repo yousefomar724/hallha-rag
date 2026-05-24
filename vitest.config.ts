@@ -8,6 +8,8 @@ export default defineConfig({
     env: {
       NODE_ENV: 'test',
       GOOGLE_API_KEY: 'test-google-key',
+      OPENROUTER_API_KEY: 'test-openrouter-key',
+      DEEPSEEK_API_KEY: 'test-deepseek-key',
       GROQ_API_KEY: 'test-groq-key',
       PINECONE_API_KEY: 'test-pinecone-key',
       MONGO_URI: 'mongodb://localhost:27017/test',

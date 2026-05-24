@@ -1,12 +1,24 @@
 import { z } from 'zod';
 
 const envSchema = z.object({
-  /** Google API key for Gemini (audit + guardrail LLMs). */
-  GOOGLE_API_KEY: z.string().min(1, 'GOOGLE_API_KEY is required'),
-  /** Primary Gemini model used for the audit / chat node. */
-  GEMINI_MODEL: z.string().default('gemini-2.0-flash'),
-  /** Gemini model used for the pre-RAG intent guardrail. */
-  GEMINI_GUARDRAIL_MODEL: z.string().default('gemini-2.0-flash'),
+  /** OpenRouter API key — primary LLM provider (DeepSeek models via OpenRouter). */
+  OPENROUTER_API_KEY: z.string().min(1, 'OPENROUTER_API_KEY is required'),
+  /** OpenRouter reasoning model (chain-of-thought) for compliance analysis & report synthesis. */
+  OPENROUTER_REASONING_MODEL: z.string().default('deepseek/deepseek-r1'),
+  /** OpenRouter fast model for guardrail, clause parsing, CRAG evaluator, and chat-Q&A. */
+  OPENROUTER_CHAT_MODEL: z.string().default('deepseek/deepseek-chat'),
+  /** HTTP-Referer header sent to OpenRouter (app URL for analytics). */
+  OPENROUTER_HTTP_REFERER: z.string().default('http://localhost:3000'),
+  /** X-Title header sent to OpenRouter (app name for analytics). */
+  OPENROUTER_APP_TITLE: z.string().default('Hallha Sharia Auditor'),
+  /** Legacy DeepSeek envs — accepted for backward compat but unused at runtime. */
+  DEEPSEEK_API_KEY: z.string().optional(),
+  DEEPSEEK_REASONING_MODEL: z.string().optional(),
+  DEEPSEEK_CHAT_MODEL: z.string().optional(),
+  /** Legacy Gemini envs — accepted for backward compat but unused at runtime. */
+  GOOGLE_API_KEY: z.string().optional(),
+  GEMINI_MODEL: z.string().optional(),
+  GEMINI_GUARDRAIL_MODEL: z.string().optional(),
   /** Groq is retained only for Whisper transcription. */
   GROQ_API_KEY: z.string().min(1, 'GROQ_API_KEY is required'),
   GROQ_TRANSCRIPTION_MODEL: z.string().default('whisper-large-v3-turbo'),

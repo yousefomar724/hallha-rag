@@ -49,16 +49,16 @@ describe('routeOnEntry', () => {
           messages: [new HumanMessage('hello, please review this sukuk structure for riba')],
         }),
       ),
-    ).toBe('audit');
+    ).toBe('chat');
   });
 
-  it('routes substantive questions to audit', () => {
+  it('routes substantive questions without a document to chat', () => {
     expect(
       routeOnEntry(
         makeState({
           messages: [new HumanMessage('Is murabaha permissible for this facility?')],
         }),
       ),
-    ).toBe('audit');
+    ).toBe('chat');
   });
 });

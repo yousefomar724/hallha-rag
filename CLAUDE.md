@@ -1,6 +1,8 @@
 # CLAUDE.md — hallha-node
 
-Express 5 + TypeScript Sharia-compliance auditor. Two main endpoints (`/upload-knowledge`, `/chat-audit`) sit in front of a LangGraph agent backed by Pinecone (RAG), MongoDB (per-thread memory + checkpoints), Better-Auth (sessions), S3 (knowledge files), and Gemini (LLM, with Groq retained for Whisper transcription only). The `admin/` workspace package is the platform-admin SPA (Vite + React 19 + shadcn).
+Express 5 + TypeScript Sharia-compliance auditor. Two main endpoints (`/upload-knowledge`, `/chat-audit`) sit in front of a LangGraph agent backed by Pinecone (RAG), MongoDB (per-thread memory + checkpoints), Better-Auth (sessions), S3 (knowledge files), and **OpenRouter** (LLM — `deepseek/deepseek-r1` for compliance reasoning + report synthesis, `deepseek/deepseek-chat` for guardrail / clause parsing / CRAG evaluator / chat-Q&A; Groq retained for Whisper transcription only). The `admin/` workspace package is the platform-admin SPA (Vite + React 19 + shadcn).
+
+The document-upload path runs an **Agentic Corrective RAG (CRAG)** loop: hierarchical clause parsing → per-clause retrieval → relevance evaluator (with query rewriting, capped at 2 attempts) → structured Sharia reasoning → autonomous purification calculator → final report synthesis. The non-document chat path remains a simpler retrieve→Q&A flow with Tavily web search.
 
 For cross-repo work with the Next.js frontend, see [`HALLHA_INTEGRATION.md`](./HALLHA_INTEGRATION.md).
 
@@ -47,4 +49,4 @@ pnpm seed:admin                # idempotent superadmin (requires SEED_ADMIN_* in
 
 ## Env (required)
 
-`GOOGLE_API_KEY`, `GROQ_API_KEY` (Whisper only), `PINECONE_API_KEY`, `MONGO_URI`. Optional `GEMINI_MODEL`, `GEMINI_GUARDRAIL_MODEL`, `PORT=8000`, `CORS_ORIGIN`, `PINECONE_INDEX=hallha`, `MONGO_DB_NAME=sharia_app`, `MONGO_CHECKPOINT_COLLECTION=checkpoints_langgraph_js`, `MONGO_CHECKPOINT_WRITES_COLLECTION=checkpoint_writes_langgraph_js`, `ADMIN_ORIGIN=http://localhost:5173`. Any `LANGSMITH_*` enables auto-tracing. See `src/config/env.ts` for the full Zod schema.
+`OPENROUTER_API_KEY`, `GROQ_API_KEY` (Whisper only), `PINECONE_API_KEY`, `MONGO_URI`. Optional `OPENROUTER_REASONING_MODEL=deepseek/deepseek-r1`, `OPENROUTER_CHAT_MODEL=deepseek/deepseek-chat`, `OPENROUTER_HTTP_REFERER=http://localhost:3000`, `OPENROUTER_APP_TITLE=Hallha Sharia Auditor`, `PORT=8000`, `CORS_ORIGIN`, `PINECONE_INDEX=hallha`, `MONGO_DB_NAME=sharia_app`, `MONGO_CHECKPOINT_COLLECTION=checkpoints_langgraph_js`, `MONGO_CHECKPOINT_WRITES_COLLECTION=checkpoint_writes_langgraph_js`, `ADMIN_ORIGIN=http://localhost:5173`. Legacy `DEEPSEEK_API_KEY` / `GOOGLE_API_KEY` / `GEMINI_*` are accepted but unused. Any `LANGSMITH_*` enables auto-tracing. See `src/config/env.ts` for the full Zod schema.

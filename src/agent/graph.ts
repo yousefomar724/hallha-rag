@@ -2,48 +2,99 @@ import { END, START, StateGraph, type CompiledStateGraph } from '@langchain/lang
 import { ToolNode } from '@langchain/langgraph/prebuilt';
 import { AgentStateAnnotation } from './state.js';
 import {
+  chatQaNode,
   greetingReplyNode,
   guardrailNode,
   harvestWebSourcesNode,
   retrieveShariaRules,
-  routeAfterAudit,
+  routeAfterChat,
   routeAfterGuardrail,
   routeOnEntry,
-  shariaAuditNode,
 } from './nodes.js';
-import { agentTools } from './tools.js';
+import { parseClausesNode } from './hierarchical-parser.js';
+import {
+  retrieveForClauseNode,
+  rewriteQueryNode,
+  routeAfterRetrieve,
+} from './crag-evaluator.js';
+import {
+  advanceClauseNode,
+  reasoningNode,
+  routeAfterAdvance,
+  skipClauseNode,
+} from './sharia-reasoning.js';
+import { synthesizeReportNode } from './audit-report.js';
+import { chatTools } from './tools.js';
 import { getCheckpointer } from '../lib/mongo.js';
 
 export function buildWorkflow() {
-  const toolsNode = new ToolNode([...agentTools]);
+  // Chat-path tools (Tavily web search bound to chatQa).
+  const webToolsNode = new ToolNode([...chatTools]);
 
-  return new StateGraph(AgentStateAnnotation)
-    .addNode('greetingReply', greetingReplyNode)
-    .addNode('guardrail', guardrailNode)
-    .addNode('retrieve', retrieveShariaRules)
-    .addNode('audit', shariaAuditNode)
-    .addNode('tools', toolsNode)
-    .addNode('harvestWebSources', harvestWebSourcesNode)
-    .addConditionalEdges(START, routeOnEntry, {
-      greeting: 'greetingReply',
-      audit: 'guardrail',
-    })
-    .addConditionalEdges('guardrail', routeAfterGuardrail, {
-      retrieve: 'retrieve',
-      end: END,
-    })
-    .addEdge('retrieve', 'audit')
-    .addConditionalEdges('audit', routeAfterAudit, {
-      tools: 'tools',
-      harvestWebSources: 'harvestWebSources',
-    })
-    .addEdge('tools', 'audit')
-    .addEdge('harvestWebSources', END)
-    .addEdge('greetingReply', END);
+  return (
+    new StateGraph(AgentStateAnnotation)
+      // shared
+      .addNode('greetingReply', greetingReplyNode)
+      .addNode('guardrail', guardrailNode)
+
+      // chat-Q&A branch (no document)
+      .addNode('retrieve', retrieveShariaRules)
+      .addNode('chatQa', chatQaNode)
+      .addNode('webTools', webToolsNode)
+      .addNode('harvestWebSources', harvestWebSourcesNode)
+
+      // agentic audit branch (document attached) — CRAG
+      .addNode('parseClauses', parseClausesNode)
+      .addNode('retrieveForClause', retrieveForClauseNode)
+      .addNode('rewriteQuery', rewriteQueryNode)
+      .addNode('reasoning', reasoningNode)
+      .addNode('skipClause', skipClauseNode)
+      .addNode('advanceClause', advanceClauseNode)
+      .addNode('synthesizeReport', synthesizeReportNode)
+
+      // ---- Edges ----
+      .addConditionalEdges(START, routeOnEntry, {
+        greeting: 'greetingReply',
+        chat: 'guardrail',
+        audit: 'parseClauses',
+      })
+      .addEdge('greetingReply', END)
+
+      // chat branch
+      .addConditionalEdges('guardrail', routeAfterGuardrail, {
+        retrieve: 'retrieve',
+        end: END,
+      })
+      .addEdge('retrieve', 'chatQa')
+      .addConditionalEdges('chatQa', routeAfterChat, {
+        tools: 'webTools',
+        harvestWebSources: 'harvestWebSources',
+      })
+      .addEdge('webTools', 'chatQa')
+      .addEdge('harvestWebSources', END)
+
+      // audit branch (CRAG loop)
+      .addEdge('parseClauses', 'retrieveForClause')
+      .addConditionalEdges('retrieveForClause', routeAfterRetrieve, {
+        reasoning: 'reasoning',
+        rewrite: 'rewriteQuery',
+        skip: 'skipClause',
+      })
+      .addEdge('rewriteQuery', 'retrieveForClause')
+      .addEdge('reasoning', 'advanceClause')
+      .addConditionalEdges('advanceClause', routeAfterAdvance, {
+        next: 'retrieveForClause',
+        synthesize: 'synthesizeReport',
+      })
+      .addConditionalEdges('skipClause', routeAfterAdvance, {
+        next: 'retrieveForClause',
+        synthesize: 'synthesizeReport',
+      })
+      .addEdge('synthesizeReport', END)
+  );
 }
 
 let compiled: ReturnType<ReturnType<typeof buildWorkflow>['compile']> | null = null;
-
 let compiledEphemeral: ReturnType<ReturnType<typeof buildWorkflow>['compile']> | null = null;
 
 export async function getCompiledGraph() {

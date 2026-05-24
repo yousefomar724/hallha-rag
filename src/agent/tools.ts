@@ -55,4 +55,46 @@ export const webSearchTool = new DynamicStructuredTool({
   },
 });
 
-export const agentTools = [webSearchTool] as const;
+/**
+ * Purification (التطهير) calculator. Invoked by the reasoning node when a riba/penalty
+ * clause has detectable monetary fields. Pure arithmetic — no I/O.
+ *
+ *  simple_360: amount = principal × (annualRatePct / 100) × (days / 360)
+ *  simple_365: amount = principal × (annualRatePct / 100) × (days / 365)
+ */
+export const PURIFICATION_TOOL_NAME = 'purification_calculator';
+
+export const purificationCalculatorTool = new DynamicStructuredTool({
+  name: PURIFICATION_TOOL_NAME,
+  description:
+    'Compute the Sharia purification (التطهير) amount for a non-compliant interest or late-payment clause. Use ONLY when the clause has concrete monetary parameters: principal, annual rate (percent), and elapsed days. Returns JSON { amount, formula, method }.',
+  schema: z.object({
+    principal: z.number().describe('Principal amount in the clause currency (any unit).'),
+    annualRatePct: z
+      .number()
+      .describe('Annual interest / penalty rate as a percentage (e.g. 12 for 12%).'),
+    days: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe('Number of days the rate has accrued.'),
+    method: z
+      .enum(['simple_360', 'simple_365'])
+      .default('simple_360')
+      .describe('Day-count convention. Default 360.'),
+  }),
+  func: async ({ principal, annualRatePct, days, method }) => {
+    const dayBase = method === 'simple_365' ? 365 : 360;
+    const amount = principal * (annualRatePct / 100) * (days / dayBase);
+    const rounded = Math.round(amount * 100) / 100;
+    return JSON.stringify({
+      amount: rounded,
+      formula: `${principal} × (${annualRatePct}% / 100) × (${days} / ${dayBase}) = ${rounded}`,
+      method,
+    });
+  },
+});
+
+export const chatTools = [webSearchTool] as const;
+
+export const agentTools = [webSearchTool, purificationCalculatorTool] as const;
