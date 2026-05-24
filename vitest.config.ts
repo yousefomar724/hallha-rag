@@ -7,6 +7,7 @@ export default defineConfig({
     testTimeout: 20_000,
     env: {
       NODE_ENV: 'test',
+      GOOGLE_API_KEY: 'test-google-key',
       GROQ_API_KEY: 'test-groq-key',
       PINECONE_API_KEY: 'test-pinecone-key',
       MONGO_URI: 'mongodb://localhost:27017/test',
