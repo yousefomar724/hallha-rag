@@ -74,6 +74,11 @@ export const AgentStateAnnotation = Annotation.Root({
     reducer: (_prev, next) => next ?? null,
     default: () => null,
   }),
+  /** Detected dominant script of the user's latest message; injected from HTTP. */
+  userLanguage: Annotation<'ar' | 'en' | 'mixed'>({
+    reducer: (_prev, next) => next,
+    default: () => 'en',
+  }),
 
   // ---- CRAG / agentic audit channels ----
 

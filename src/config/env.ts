@@ -11,6 +11,20 @@ const envSchema = z.object({
   OPENROUTER_HTTP_REFERER: z.string().default('http://localhost:3000'),
   /** X-Title header sent to OpenRouter (app name for analytics). */
   OPENROUTER_APP_TITLE: z.string().default('Hallha Sharia Auditor'),
+  /**
+   * Output token cap for the reasoning model (deepseek-r1: compliance reasoning + report synthesis).
+   * OpenRouter reserves credits up-front for `max_tokens`; without a cap, the provider default
+   * (~16 000) can cause 402 "requires more credits" before the call even starts.
+   */
+  OPENROUTER_REASONING_MAX_TOKENS: z.coerce.number().int().positive().default(4000),
+  /** Output token cap for the chat model (deepseek-chat: guardrail / CRAG / parsing / chat-Q&A). */
+  OPENROUTER_CHAT_MAX_TOKENS: z.coerce.number().int().positive().default(1024),
+  /**
+   * Optional comma-separated OpenRouter provider order (e.g. "fireworks,together,deepseek").
+   * Used to pin the request to providers that support a larger context window. Empty = let
+   * OpenRouter pick (current default — keeps behaviour identical until ops opt in).
+   */
+  OPENROUTER_PROVIDER_ORDER: z.string().optional(),
   /** Legacy DeepSeek envs — accepted for backward compat but unused at runtime. */
   DEEPSEEK_API_KEY: z.string().optional(),
   DEEPSEEK_REASONING_MODEL: z.string().optional(),

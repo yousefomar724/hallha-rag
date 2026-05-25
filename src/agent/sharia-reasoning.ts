@@ -58,6 +58,20 @@ RULES
 
 Respond with only the structured fields requested.`;
 
+/**
+ * Hard character caps for the reasoning prompt. The reasoning model is fed the
+ * retrieved excerpts for one clause; capping these here keeps us under the
+ * provider window and bounds output token cost too. ~4 chars ≈ 1 token, so:
+ *  - 80 000 chars ≈ 20 000 tokens for excerpts
+ *  - 4 000 chars  ≈ 1 000 tokens for the clause text
+ */
+const MAX_EXCERPT_CHARS = 80_000;
+const MAX_CLAUSE_CHARS = 4_000;
+
+function truncate(text: string, max: number, suffix: string): string {
+  return text.length > max ? text.slice(0, max) + suffix : text;
+}
+
 const PURIFICATION_EXTRACTOR_SYSTEM = `Extract the monetary parameters needed to compute Sharia purification (التطهير) for a non-compliant interest / penalty clause.
 
 If the clause has a fixed principal, an explicit annual rate (percent), and an elapsed time in days (or you can convert months/years to days), return them. Otherwise return all zeros — the calculator will be skipped.
@@ -92,10 +106,18 @@ export async function reasoningNode(state: AgentState): Promise<AgentStateUpdate
   let finding: ClauseFinding;
   try {
     const llm = getReasoningLlm().withStructuredOutput(FindingSchema);
+    const clauseText = truncate(clause.text, MAX_CLAUSE_CHARS, '…[truncated]');
+    const contextBlock = state.context
+      ? truncate(
+          state.context,
+          MAX_EXCERPT_CHARS,
+          '\n…[excerpts truncated to fit context window]',
+        )
+      : '(none — proceed cautiously)';
     const raw = await llm.invoke([
       new SystemMessage(REASONING_SYSTEM),
       new HumanMessage(
-        `CLAUSE (${clause.kind}) — ${clause.title}:\n${clause.text}\n\nRETRIEVED EXCERPTS:\n${state.context || '(none — proceed cautiously)'}`,
+        `CLAUSE (${clause.kind}) — ${clause.title}:\n${clauseText}\n\nRETRIEVED EXCERPTS:\n${contextBlock}`,
       ),
     ]);
     const parsed = FindingSchema.parse(raw);
@@ -153,9 +175,10 @@ async function tryInvokePurification(
 ): Promise<{ amount: number; formula: string } | null> {
   try {
     const llm = getChatLlm().withStructuredOutput(PurificationParamsSchema);
+    const clauseText = truncate(clause.text, MAX_CLAUSE_CHARS, '…[truncated]');
     const raw = await llm.invoke([
       new SystemMessage(PURIFICATION_EXTRACTOR_SYSTEM),
-      new HumanMessage(`CLAUSE:\n${clause.text}`),
+      new HumanMessage(`CLAUSE:\n${clauseText}`),
     ]);
     const params = PurificationParamsSchema.parse(raw);
     if (params.principal <= 0 || params.annualRatePct <= 0 || params.days <= 0) {

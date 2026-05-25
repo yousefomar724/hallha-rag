@@ -23,6 +23,15 @@ export const DEFAULT_K_PER_NAMESPACE = 6;
 export const DEFAULT_TOP_N = 8;
 
 /**
+ * Pinecone's cross-encoder (`bge-reranker-v2-m3`) caps each query+document pair
+ * at 1024 tokens. Anything bigger 400s the whole rerank call. ~1 200 chars
+ * ≈ 300 tokens for the query leaves room for ~700 tokens of document text per
+ * pair. Combined with `parameters.truncate: 'END'` below this gives us
+ * belt-and-suspenders against oversized inputs.
+ */
+const MAX_RERANK_QUERY_CHARS = 1_200;
+
+/**
  * Query multiple Pinecone namespaces in parallel and return all hits tagged
  * with the namespace they came from. Order within each namespace is preserved
  * via the `baseScore` field (kPerNamespace - rank).
@@ -112,6 +121,11 @@ export async function rerankDocuments(opts: {
     text: c.doc.pageContent,
   }));
 
+  const query =
+    opts.query.length > MAX_RERANK_QUERY_CHARS
+      ? opts.query.slice(0, MAX_RERANK_QUERY_CHARS)
+      : opts.query;
+
   try {
     const pc = getPineconeClient() as unknown as {
       inference?: { rerank: (req: unknown) => Promise<unknown> };
@@ -121,11 +135,12 @@ export async function rerankDocuments(opts: {
     }
     const raw = (await pc.inference.rerank({
       model,
-      query: opts.query,
+      query,
       documents,
       topN,
       returnDocuments: false,
       rankFields: ['text'],
+      parameters: { truncate: 'END' },
     })) as { data?: { index?: number; score?: number }[] };
 
     const ranked = Array.isArray(raw?.data) ? raw.data : [];

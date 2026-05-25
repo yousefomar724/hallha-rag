@@ -60,6 +60,21 @@ Return only the structured fields requested.`;
 const FALLBACK_CLAUSE_TITLE = 'Whole document';
 
 /**
+ * Character caps for the parser prompt.
+ * - 80 000 chars ≈ 20 000 tokens fits comfortably under the chat-model 32 k window
+ *   alongside the system prompt + structured-output schema.
+ * - 4 000 chars ≈ 1 000 tokens is the per-clause cap used by CRAG / reasoning;
+ *   matching it here prevents a fallback "whole document" clause from later
+ *   blowing up the Pinecone rerank query (1024 tokens per query+document pair).
+ */
+const MAX_DOCUMENT_CHARS = 80_000;
+const MAX_FALLBACK_CLAUSE_CHARS = 4_000;
+
+function truncate(text: string, max: number, suffix: string): string {
+  return text.length > max ? text.slice(0, max) + suffix : text;
+}
+
+/**
  * Node A — Hierarchical Parsing Agent.
  *
  * Splits the uploaded contract into typed clauses that the CRAG loop can audit individually.
@@ -84,15 +99,21 @@ export async function parseClausesNode(state: AgentState): Promise<AgentStateUpd
     id: 'c1',
     kind,
     title: FALLBACK_CLAUSE_TITLE,
-    text: docText,
+    text: truncate(docText, MAX_FALLBACK_CLAUSE_CHARS, '…[truncated]'),
   });
+
+  const promptDocText = truncate(
+    docText,
+    MAX_DOCUMENT_CHARS,
+    '\n…[document truncated to fit context window]',
+  );
 
   let clauses: Clause[];
   try {
     const llm = getChatLlm().withStructuredOutput(ClausesEnvelopeSchema);
     const result = await llm.invoke([
       new SystemMessage(PARSER_SYSTEM),
-      new HumanMessage(`DOCUMENT:\n${docText}`),
+      new HumanMessage(`DOCUMENT:\n${promptDocText}`),
     ]);
     const parsed = ClausesEnvelopeSchema.parse(result);
     clauses = parsed.clauses.map((c, i) => ({

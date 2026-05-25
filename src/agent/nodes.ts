@@ -1,5 +1,5 @@
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
-import { getChatLlmWithTools } from '../lib/llm.js';
+import { getChatLlmWithTools, getReasoningLlmWithChatTools } from '../lib/llm.js';
 import { logger } from '../lib/logger.js';
 import { buildHalimSystemPrompt, type RetrievedSource } from './prompt.js';
 import { guardrailRefusalMessageForUserText } from './audit-defaults.js';
@@ -227,9 +227,12 @@ export async function chatQaNode(state: AgentState): Promise<AgentStateUpdate> {
     documentText: state.documentText,
     sources: state.sources,
     contextSummary: state.contextSummary,
+    userLanguage: state.userLanguage,
   });
 
-  const llm = getChatLlmWithTools();
+  const hasFileContext =
+    (state.documentText?.trim().length ?? 0) > 0 || Boolean(state.clientId);
+  const llm = hasFileContext ? getReasoningLlmWithChatTools() : getChatLlmWithTools();
   const messagesToSend = [new SystemMessage(systemPrompt), ...state.messages];
 
   try {

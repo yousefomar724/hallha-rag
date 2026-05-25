@@ -3,6 +3,7 @@ import { ObjectId } from 'mongodb';
 import { requireAuth } from './require-auth.js';
 import { HttpError } from './error.js';
 import { getDb } from '../lib/mongo.js';
+import { logger } from '../lib/logger.js';
 
 const ADMIN_ROLES = new Set(['admin', 'superadmin']);
 
@@ -23,6 +24,10 @@ export const requireAdmin: RequestHandler = (req, res, next) => {
 
     void fetchUserRole(userId).then((role) => {
       if (!role || !ADMIN_ROLES.has(role)) {
+        logger.warn(
+          { userId, email: req.user?.email, role, path: req.path },
+          'Admin access denied',
+        );
         return next(new HttpError(403, 'Admin access required.'));
       }
       req.user = { ...req.user!, role };
@@ -39,6 +44,10 @@ export const requireSuperadmin: RequestHandler = (req, res, next) => {
 
     void fetchUserRole(userId).then((role) => {
       if (role !== 'superadmin') {
+        logger.warn(
+          { userId, email: req.user?.email, role, path: req.path },
+          'Superadmin access denied',
+        );
         return next(new HttpError(403, 'Superadmin access required.'));
       }
       req.user = { ...req.user!, role };

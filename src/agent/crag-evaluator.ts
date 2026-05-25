@@ -10,6 +10,21 @@ import type { AgentState, AgentStateUpdate, Clause } from './state.js';
 
 export const MAX_CRAG_ATTEMPTS = 2;
 
+/**
+ * Hard character caps for the LLM prompt. The chat model (deepseek-chat) is
+ * routed to providers that sometimes cap context at 32 768 tokens — large PDFs
+ * easily blow past that with raw retrieved excerpts. ~4 chars ≈ 1 token, so:
+ *  - 80 000 chars ≈ 20 000 tokens for retrieved excerpts
+ *  - 4 000 chars  ≈ 1 000 tokens for the clause text
+ * leaves comfortable headroom for the system prompt + structured-output schema.
+ */
+const MAX_EXCERPT_CHARS = 80_000;
+const MAX_CLAUSE_CHARS = 4_000;
+
+function truncate(text: string, max: number, suffix: string): string {
+  return text.length > max ? text.slice(0, max) + suffix : text;
+}
+
 const RelevanceSchema = z.object({
   relevant: z
     .boolean()
@@ -80,10 +95,16 @@ export async function routeAfterRetrieve(
   }
   try {
     const llm = getChatLlm().withStructuredOutput(RelevanceSchema);
+    const clauseText = truncate(clause.text, MAX_CLAUSE_CHARS, '…[truncated]');
+    const contextBlock = truncate(
+      state.context,
+      MAX_EXCERPT_CHARS,
+      '\n…[excerpts truncated to fit context window]',
+    );
     const result = await llm.invoke([
       new SystemMessage(EVALUATOR_SYSTEM),
       new HumanMessage(
-        `CLAUSE (${clause.kind}) — ${clause.title}:\n${clause.text}\n\nRETRIEVED EXCERPTS:\n${state.context}`,
+        `CLAUSE (${clause.kind}) — ${clause.title}:\n${clauseText}\n\nRETRIEVED EXCERPTS:\n${contextBlock}`,
       ),
     ]);
     const parsed = RelevanceSchema.parse(result);
@@ -111,10 +132,11 @@ export async function rewriteQueryNode(state: AgentState): Promise<AgentStateUpd
   }
   try {
     const llm = getChatLlm();
+    const clauseText = truncate(clause.text, MAX_CLAUSE_CHARS, '…[truncated]');
     const response = await llm.invoke([
       new SystemMessage(REWRITER_SYSTEM),
       new HumanMessage(
-        `Original clause (${clause.kind}):\n${clause.text}\n\nPrior retrieval was irrelevant. Produce one improved query.`,
+        `Original clause (${clause.kind}):\n${clauseText}\n\nPrior retrieval was irrelevant. Produce one improved query.`,
       ),
     ]);
     const raw = response.content;

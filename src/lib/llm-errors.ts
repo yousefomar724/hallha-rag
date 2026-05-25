@@ -10,6 +10,7 @@ export type UpstreamLlmErrorKind =
   | 'rate_limited'
   | 'invalid_api_key'
   | 'model_not_found'
+  | 'insufficient_credits'
   | 'upstream_error'
   | 'unknown';
 
@@ -108,6 +109,26 @@ export function parseUpstreamLlmError(err: unknown): ParsedUpstreamError {
   const lowerMsg = rawMsg.toLowerCase();
   const provider = detectProvider(rawName, rawMsg);
   const retryAfterSeconds = extractRetryAfterSeconds(rawMsg);
+
+  // OpenRouter 402 — account balance can't cover the requested max_tokens. This
+  // is distinct from rate-limit / quota: the request never executed, so a retry
+  // won't help until the user tops up or we lower max_tokens server-side.
+  const isInsufficientCredits =
+    lowerMsg.includes('requires more credits') ||
+    lowerMsg.includes('insufficient credits') ||
+    lowerMsg.includes('can only afford') ||
+    (lowerMsg.includes('402') && lowerMsg.includes('max_tokens'));
+
+  if (isInsufficientCredits) {
+    return {
+      kind: 'insufficient_credits',
+      message:
+        `${providerLabel(provider)} balance is too low for this request. ` +
+        `Top up credits or lower the model's max_tokens budget on the server.`,
+      status: 402,
+      provider,
+    };
+  }
 
   // Quota exhausted (paid limit, billing, daily/monthly caps, free-tier zero).
   const isQuotaExhausted =

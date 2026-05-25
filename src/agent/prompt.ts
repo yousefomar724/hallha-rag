@@ -47,13 +47,26 @@ function formatSourcesHint(sources: RetrievedSource[]): string {
     .join('\n');
 }
 
+export type UserLanguageDirective = 'ar' | 'en' | 'mixed';
+
+export function languageDirective(lang: UserLanguageDirective | undefined): string {
+  if (lang === 'ar') {
+    return 'LANGUAGE (binding)\n- The user wrote in Arabic. You MUST respond entirely in Modern Standard Arabic (العربية الفصحى).\n- Do NOT switch to English even if the uploaded document, retrieved excerpts, or AAOIFI standard titles are in English.\n- Technical tokens (AAOIFI codes like "FAS 30", numeric figures, currency symbols, URLs) may remain in their original form, but all prose, headings, bullet labels, and explanations must be in Arabic.\n- Translate the bold field labels too: use "البند المقتبس" instead of "Quoted clause", "وصف المخالفة" instead of "Violation Description", "المرجع المعياري" instead of "Standard Reference", "الموقع" instead of "Location", "الحل / التطهير" instead of "Solution / Purification". Keep the markdown bold syntax.';
+  }
+  if (lang === 'mixed') {
+    return 'LANGUAGE (binding)\n- The user mixed Arabic and English in their latest message. Mirror the dominant language of that message; if truly balanced, prefer Arabic.\n- Whichever language you pick, use it consistently for prose and headings. Technical tokens (standard codes, figures, URLs) keep their original form.';
+  }
+  return 'LANGUAGE (binding)\n- The user wrote in English. Respond in English.';
+}
+
 export function buildHalimSystemPrompt(args: {
   context: string;
   documentText: string;
   sources: RetrievedSource[];
   contextSummary?: string;
+  userLanguage?: UserLanguageDirective;
 }): string {
-  const { context, documentText, sources, contextSummary } = args;
+  const { context, documentText, sources, contextSummary, userLanguage } = args;
   const documentBlock = documentText.trim() ? documentText : 'No document uploaded.';
   const knowledgeBlock = context.trim() ? context : 'No reference knowledge retrieved.';
   const orgContextBlock =
@@ -70,8 +83,7 @@ IDENTITY & LIMITS
 - Do NOT introduce yourself or restate your identity unless the user explicitly asks who you are or what you are. Answer the user's actual message directly.
 - If a user asks a question entirely unrelated to Islamic finance, auditing, contracts, or fintech compliance, politely decline and steer them back to your area of expertise.
 
-LANGUAGE
-- Respond in the language the user wrote in. If they mix Arabic and English, mirror their mix. Use proper Arabic typography when writing Arabic.
+${languageDirective(userLanguage)}
 
 WHEN A DOCUMENT IS UPLOADED — produce a Sharia audit with this exact structure:
 1. **Executive Summary** — 2-3 sentences: overall compliance posture and the single most material issue.

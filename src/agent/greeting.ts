@@ -61,3 +61,26 @@ export function detectGreeting(message: string | undefined): GreetingLanguage | 
 export function greetingReplyFor(lang: GreetingLanguage): string {
   return lang === 'ar' ? ARABIC_REPLY : ENGLISH_REPLY;
 }
+
+export type UserLanguage = 'ar' | 'en' | 'mixed';
+
+const ARABIC_LETTER_RE = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/gu;
+const LATIN_LETTER_RE = /[A-Za-z]/g;
+
+/**
+ * Classify the dominant script of a user's message so the prompt can force a
+ * matching response language. Returns 'en' when the message has no letters at
+ * all (numbers / punctuation only) since the prompt default is English.
+ */
+export function detectUserLanguage(text: string | undefined | null): UserLanguage {
+  if (!text) return 'en';
+  const ar = text.match(ARABIC_LETTER_RE)?.length ?? 0;
+  const lat = text.match(LATIN_LETTER_RE)?.length ?? 0;
+  if (ar === 0 && lat === 0) return 'en';
+  if (ar > 0 && lat === 0) return 'ar';
+  if (lat > 0 && ar === 0) return 'en';
+  const total = ar + lat;
+  if (ar / total >= 0.85) return 'ar';
+  if (lat / total >= 0.85) return 'en';
+  return 'mixed';
+}

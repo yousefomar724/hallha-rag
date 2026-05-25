@@ -14,6 +14,7 @@ import { HttpError } from '../middleware/error.js';
 import { extractPdfText } from '../utils/pdf.js';
 import { getCompiledGraph, getEphemeralGraph } from '../agent/graph.js';
 import type { RetrievedSource } from '../agent/prompt.js';
+import { detectUserLanguage, type UserLanguage } from '../agent/greeting.js';
 import { getPlan, UNLIMITED } from '../lib/plans.js';
 import { namespaceThreadId, upsertThreadActivity } from '../lib/chat-history.js';
 import { getClientForOrg } from '../lib/clients.js';
@@ -36,6 +37,8 @@ type AuditInputs = {
   clientId: string | null;
   /** When true, skip Mongo checkpointing and chat_thread writes (one-shot confidential run). */
   isConfidential: boolean;
+  /** Detected script of the user's question (used to force response language). */
+  userLanguage: UserLanguage;
 };
 
 async function loadOrgContextSummary(orgId: string): Promise<string> {
@@ -125,6 +128,9 @@ async function prepareAuditInputs(req: Request, res: Response): Promise<AuditInp
 
   const userInput = message ?? DEFAULT_AUDIT_USER_MESSAGE;
   const isConfidential = parseMultipartBool(req.body?.isConfidential);
+  // Prefer the user's raw question for language detection. The default audit
+  // prompt is English and would otherwise override an Arabic upload-only turn.
+  const userLanguage = detectUserLanguage(message ?? '');
   return {
     userThreadId: threadId,
     namespacedThreadId: namespaceThreadId(req.activeOrgId!, threadId, clientId),
@@ -134,6 +140,7 @@ async function prepareAuditInputs(req: Request, res: Response): Promise<AuditInp
     contextSummary,
     clientId,
     isConfidential,
+    userLanguage,
   };
 }
 
@@ -194,6 +201,7 @@ chatAuditRouter.post(
           guardrailBlocked: false,
           contextSummary: inputs.contextSummary,
           clientId: inputs.clientId,
+          userLanguage: inputs.userLanguage,
         },
         { configurable: { thread_id: inputs.namespacedThreadId } },
       );
@@ -278,6 +286,7 @@ chatAuditRouter.post(
           guardrailBlocked: false,
           contextSummary: inputs.contextSummary,
           clientId: inputs.clientId,
+          userLanguage: inputs.userLanguage,
         },
         {
           configurable: { thread_id: inputs.namespacedThreadId },

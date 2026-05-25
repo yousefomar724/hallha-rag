@@ -96,16 +96,16 @@ export function KnowledgePage() {
         file,
         displayNameInput.trim() || undefined,
         (loaded, total) => {
-        if (total <= 0) {
-          setUploadIndeterminate(true);
-          return;
-        }
-        const pct = Math.min(100, Math.round((loaded / total) * 100));
-        setUploadProgress(pct);
-        if (loaded >= total) {
-          setPhase('processing');
-        }
-      },
+          if (total <= 0) {
+            setUploadIndeterminate(true);
+            return;
+          }
+          const pct = Math.min(100, Math.round((loaded / total) * 100));
+          setUploadProgress(pct);
+          if (loaded >= total) {
+            setPhase('processing');
+          }
+        },
       )) as { message?: string };
       setPhase('done');
       setMessage(result.message ?? 'Uploaded successfully.');
@@ -183,7 +183,8 @@ export function KnowledgePage() {
 
       <h1 className="text-xl font-semibold">Upload Knowledge</h1>
       <p className="text-sm text-muted-foreground">
-        Upload a PDF to ingest into the shared Pinecone knowledge base. Only PDF files are supported.
+        Upload a PDF to ingest into the shared Pinecone knowledge base. Only PDF files are
+        supported.
       </p>
 
       <Card>
@@ -215,7 +216,9 @@ export function KnowledgePage() {
             className={`flex flex-col items-center justify-center gap-3 rounded-md border-2 border-dashed px-6 py-10 transition-colors ${
               busy ? 'pointer-events-none opacity-60' : 'cursor-pointer'
             } ${
-              dragging ? 'border-primary bg-accent' : 'border-muted-foreground/25 hover:border-primary/50'
+              dragging
+                ? 'border-primary bg-accent'
+                : 'border-muted-foreground/25 hover:border-primary/50'
             }`}
           >
             <span className="text-3xl">📄</span>
@@ -265,7 +268,9 @@ export function KnowledgePage() {
               <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                 <div className="h-full w-full animate-pulse bg-primary/70" />
               </div>
-              <p className="text-xs text-muted-foreground">Ingesting into knowledge base (S3 + Pinecone)…</p>
+              <p className="text-xs text-muted-foreground">
+                Ingesting into knowledge base (S3 + Pinecone)…
+              </p>
             </div>
           )}
 
@@ -314,7 +319,9 @@ export function KnowledgePage() {
               {filesError instanceof Error ? filesError.message : 'Failed to load uploaded files.'}
             </p>
           ) : files.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No PDFs uploaded for this organization yet.</p>
+            <p className="text-sm text-muted-foreground">
+              No PDFs uploaded for this organization yet.
+            </p>
           ) : (
             <Table>
               <TableHeader>
@@ -330,51 +337,60 @@ export function KnowledgePage() {
                 {files.map((f) => {
                   const label = f.displayName?.trim()?.length ? f.displayName : f.name;
                   return (
-                  <TableRow key={f.key}>
-                    <TableCell className="max-w-[240px]">
-                      <div className="font-medium">{label}</div>
-                      {f.name !== label ? (
-                        <div className="truncate text-xs text-muted-foreground" title={f.name}>
-                          {f.name}
+                    <TableRow key={f.key}>
+                      <TableCell className="max-w-[240px]">
+                        <div className="font-medium truncate max-w-[200px]" title={label}>
+                          {label}
                         </div>
-                      ) : null}
-                    </TableCell>
-                    <TableCell className="text-end text-muted-foreground">{formatBytes(f.size)}</TableCell>
-                    <TableCell className="text-end text-muted-foreground">{formatDate(f.lastModified)}</TableCell>
-                    <TableCell className="text-end">
-                      {f.url ? (
-                        <a
-                          href={f.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary text-sm underline-offset-4 hover:underline"
+                        {f.name !== label ? (
+                          <div
+                            className="truncate text-xs text-muted-foreground max-w-[200px]"
+                            title={f.name}
+                          >
+                            {f.name}
+                          </div>
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="text-end text-muted-foreground">
+                        {formatBytes(f.size)}
+                      </TableCell>
+                      <TableCell className="text-end text-muted-foreground">
+                        {formatDate(f.lastModified)}
+                      </TableCell>
+                      <TableCell className="text-end">
+                        {f.url ? (
+                          <a
+                            href={f.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary text-sm underline-offset-4 hover:underline"
+                          >
+                            Open
+                          </a>
+                        ) : (
+                          '—'
+                        )}
+                      </TableCell>
+                      <TableCell className="text-end">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          disabled={deleteMutation.isPending}
+                          onClick={() =>
+                            setFilePendingDelete({
+                              key: f.key,
+                              displayLabel: label,
+                              originalFilename: f.name,
+                            })
+                          }
                         >
-                          Open
-                        </a>
-                      ) : (
-                        '—'
-                      )}
-                    </TableCell>
-                    <TableCell className="text-end">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        disabled={deleteMutation.isPending}
-                        onClick={() =>
-                          setFilePendingDelete({
-                            key: f.key,
-                            displayLabel: label,
-                            originalFilename: f.name,
-                          })
-                        }
-                      >
-                        Remove
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                  )
+                          Remove
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
                 })}
               </TableBody>
             </Table>

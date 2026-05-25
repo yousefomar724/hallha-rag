@@ -1,7 +1,7 @@
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 
 import { getReasoningLlm } from '../lib/llm.js';
-import type { RetrievedSource } from './prompt.js';
+import { languageDirective, type RetrievedSource, type UserLanguageDirective } from './prompt.js';
 import type { AgentState, AgentStateUpdate, ClauseFinding, Clause } from './state.js';
 
 function formatSourcesHint(sources: RetrievedSource[]): string {
@@ -50,6 +50,7 @@ function buildReportSystemPrompt(args: {
   clauses: Clause[];
   purificationDetails: string | null;
   purificationAmount: number | null;
+  userLanguage?: UserLanguageDirective;
 }): string {
   const orgContextBlock =
     args.contextSummary?.trim() && args.contextSummary.trim().length > 0
@@ -83,8 +84,8 @@ CITATION RULES
 - Never cite a source id not in AVAILABLE SOURCES.
 - Do NOT add a trailing "Sources" section — the host app renders sources separately.
 
-LANGUAGE
-- Respond in the same language as the underlying clauses / user context. Default to English if mixed.
+${languageDirective(args.userLanguage)}
+- When quoting the clause verbatim ("Quoted clause"), keep it in the original language of the uploaded document; everything else (Violation Description, Standard Reference text, Location prefix, Solution / Purification, Executive Summary, Cross-cutting Amendments) MUST follow the LANGUAGE directive above.
 
 BUSINESS / ORGANIZATION CONTEXT:
 ${orgContextBlock}
@@ -111,6 +112,7 @@ export async function synthesizeReportNode(state: AgentState): Promise<AgentStat
     clauses: state.clauses,
     purificationAmount: state.purificationAmount,
     purificationDetails: state.purificationDetails,
+    userLanguage: state.userLanguage,
   });
   const response = await llm.invoke([
     new SystemMessage(systemPrompt),
